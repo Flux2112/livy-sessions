@@ -1,0 +1,269 @@
+{
+  "name": "livy-session",
+  "displayName": "Livy Session",
+  "description": "Connect to Apache Livy and run Spark code interactively from VSCode",
+  "version": "0.1.0",
+  "publisher": "livy-session",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Data Science"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "icon": "media/livy.svg",
+  "contributes": {
+    "commands": [
+      {
+        "command": "livy.createSession",
+        "title": "Create Livy Session",
+        "category": "Livy",
+        "icon": "$(add)"
+      },
+      {
+        "command": "livy.connectSession",
+        "title": "Connect to Livy Session",
+        "category": "Livy",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "livy.killSession",
+        "title": "Kill Session",
+        "category": "Livy",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "livy.killAllSessions",
+        "title": "Kill All Sessions",
+        "category": "Livy",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "livy.showSessionInfo",
+        "title": "Show Session Info",
+        "category": "Livy",
+        "icon": "$(info)"
+      },
+      {
+        "command": "livy.refreshSessions",
+        "title": "Refresh",
+        "category": "Livy",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "livy.runSelection",
+        "title": "Run Selection in Livy",
+        "category": "Livy",
+        "icon": "$(run)"
+      },
+      {
+        "command": "livy.runFile",
+        "title": "Run File in Livy",
+        "category": "Livy",
+        "icon": "$(run-all)"
+      },
+      {
+        "command": "livy.getLogs",
+        "title": "Show Livy Logs",
+        "category": "Livy",
+        "icon": "$(output)"
+      },
+      {
+        "command": "livy.nextLogs",
+        "title": "Next Livy Logs",
+        "category": "Livy"
+      },
+      {
+        "command": "livy.tailLogs",
+        "title": "Tail Livy Logs",
+        "category": "Livy"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "livyExplorer",
+          "title": "Livy Sessions",
+          "icon": "media/livy.svg"
+        }
+      ]
+    },
+    "views": {
+      "livyExplorer": [
+        {
+          "id": "livySessions",
+          "name": "Sessions"
+        }
+      ]
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "livy.runSelection",
+          "when": "editorHasSelection",
+          "group": "livy@1"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "livy.createSession",
+          "when": "view == livySessions",
+          "group": "navigation@1"
+        },
+        {
+          "command": "livy.refreshSessions",
+          "when": "view == livySessions",
+          "group": "navigation@2"
+        },
+        {
+          "command": "livy.killAllSessions",
+          "when": "view == livySessions",
+          "group": "navigation@3"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "livy.killSession",
+          "when": "view == livySessions && viewItem == livySession",
+          "group": "livy@1"
+        },
+        {
+          "command": "livy.showSessionInfo",
+          "when": "view == livySessions && viewItem == livySession",
+          "group": "livy@2"
+        },
+        {
+          "command": "livy.getLogs",
+          "when": "view == livySessions && viewItem == livySession",
+          "group": "livy@3"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "livy.runSelection",
+        "key": "shift+enter",
+        "when": "editorTextFocus"
+      }
+    ],
+    "configuration": {
+      "title": "Livy",
+      "properties": {
+        "livy.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:8998",
+          "description": "Livy server base URL"
+        },
+        "livy.authMethod": {
+          "type": "string",
+          "enum": ["none", "basic", "bearer"],
+          "default": "none",
+          "description": "Authentication method"
+        },
+        "livy.username": {
+          "type": "string",
+          "default": "",
+          "description": "Username for basic auth"
+        },
+        "livy.password": {
+          "type": "string",
+          "default": "",
+          "description": "Password for basic auth (stored in secrets, not in settings JSON)"
+        },
+        "livy.bearerToken": {
+          "type": "string",
+          "default": "",
+          "description": "Bearer token for auth"
+        },
+        "livy.defaultKind": {
+          "type": "string",
+          "enum": ["spark", "pyspark", "sparkr", "sql"],
+          "default": "pyspark",
+          "description": "Default statement kind"
+        },
+        "livy.sessionName": {
+          "type": "string",
+          "default": "",
+          "description": "Default session name"
+        },
+        "livy.pollIntervalMs": {
+          "type": "number",
+          "default": 1000,
+          "description": "Statement polling interval in milliseconds"
+        },
+        "livy.sessionPollIntervalMs": {
+          "type": "number",
+          "default": 3000,
+          "description": "Session creation polling interval in milliseconds"
+        },
+        "livy.driverMemory": {
+          "type": "string",
+          "default": "",
+          "description": "Spark driver memory (e.g. 10g)"
+        },
+        "livy.executorMemory": {
+          "type": "string",
+          "default": "",
+          "description": "Spark executor memory"
+        },
+        "livy.executorCores": {
+          "type": ["number", "null"],
+          "default": null,
+          "description": "Spark executor cores"
+        },
+        "livy.numExecutors": {
+          "type": ["number", "null"],
+          "default": null,
+          "description": "Number of executors"
+        },
+        "livy.sessionTtl": {
+          "type": "string",
+          "default": "",
+          "description": "Session TTL (e.g. 600m)"
+        },
+        "livy.jars": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Additional JAR paths"
+        },
+        "livy.pyFiles": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Additional pyFiles paths"
+        },
+        "livy.conf": {
+          "type": "object",
+          "default": {},
+          "description": "Additional Spark config properties"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.js --minify",
+    "build:dev": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "lint": "eslint src --ext ts",
+    "typecheck": "tsc --noEmit",
+    "test": "jest",
+    "vscode:prepublish": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "esbuild": "^0.20.0",
+    "eslint": "^8.57.0",
+    "typescript": "^5.4.0",
+    "ts-jest": "^29.1.0",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.0"
+  }
+}
