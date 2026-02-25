@@ -6,6 +6,7 @@ module.exports = {
   testMatch: ['**/__tests__/**/*.test.ts'],
   moduleNameMapper: {
     '^vscode$': '<rootDir>/src/__mocks__/vscode.ts',
+    '^kerberos$': '<rootDir>/src/__mocks__/kerberos.ts',
   },
   globals: {
     'ts-jest': {

@@ -7,7 +7,7 @@ import type { SessionManager } from '../livy/sessionManager'
 export class SessionTreeItem extends vscode.TreeItem {
   readonly session: LivySession
 
-  constructor(session: LivySession) {
+  constructor(session: LivySession, isActive: boolean) {
     const label = session.name
       ? `#${session.id} – ${session.name}`
       : `Session #${session.id}`
@@ -15,34 +15,56 @@ export class SessionTreeItem extends vscode.TreeItem {
     super(label, vscode.TreeItemCollapsibleState.Collapsed)
 
     this.session = session
-    this.contextValue = 'livySession'
-    this.description = `${session.kind} | ${session.state}`
+    this.contextValue = isActive ? 'livyActiveSession' : 'livySession'
+    this.description = isActive
+      ? `${session.kind} | ${session.state} ● connected`
+      : `${session.kind} | ${session.state}`
     this.tooltip = new vscode.MarkdownString(
-      `**Session #${session.id}**\n\n` +
+      `**Session #${session.id}**${isActive ? ' *(connected)*' : ''}\n\n` +
       `- Kind: \`${session.kind}\`\n` +
       `- State: \`${session.state}\`\n` +
       (session.appId ? `- App ID: \`${session.appId}\`` : '')
     )
 
-    // Set icon based on state
-    switch (session.state) {
-      case 'idle':
-        this.iconPath = new vscode.ThemeIcon('zap', new vscode.ThemeColor('charts.green'))
-        break
-      case 'busy':
-        this.iconPath = new vscode.ThemeIcon('sync~spin')
-        break
-      case 'starting':
-      case 'not_started':
-        this.iconPath = new vscode.ThemeIcon('sync~spin', new vscode.ThemeColor('charts.yellow'))
-        break
-      case 'dead':
-      case 'error':
-        this.iconPath = new vscode.ThemeIcon('error', new vscode.ThemeColor('charts.red'))
-        break
-      default:
-        this.iconPath = new vscode.ThemeIcon('circle-slash')
-        break
+    // Set icon based on state; active session uses a distinct "plug" icon
+    if (isActive) {
+      switch (session.state) {
+        case 'idle':
+        case 'busy':
+          this.iconPath = new vscode.ThemeIcon('plug', new vscode.ThemeColor('charts.green'))
+          break
+        case 'starting':
+        case 'not_started':
+          this.iconPath = new vscode.ThemeIcon('plug', new vscode.ThemeColor('charts.yellow'))
+          break
+        case 'dead':
+        case 'error':
+          this.iconPath = new vscode.ThemeIcon('plug', new vscode.ThemeColor('charts.red'))
+          break
+        default:
+          this.iconPath = new vscode.ThemeIcon('plug')
+          break
+      }
+    } else {
+      switch (session.state) {
+        case 'idle':
+          this.iconPath = new vscode.ThemeIcon('zap', new vscode.ThemeColor('charts.green'))
+          break
+        case 'busy':
+          this.iconPath = new vscode.ThemeIcon('sync~spin')
+          break
+        case 'starting':
+        case 'not_started':
+          this.iconPath = new vscode.ThemeIcon('sync~spin', new vscode.ThemeColor('charts.yellow'))
+          break
+        case 'dead':
+        case 'error':
+          this.iconPath = new vscode.ThemeIcon('error', new vscode.ThemeColor('charts.red'))
+          break
+        default:
+          this.iconPath = new vscode.ThemeIcon('circle-slash')
+          break
+      }
     }
   }
 }
@@ -147,7 +169,8 @@ export class SessionTreeProvider
     if (!element) {
       // Root: list all sessions
       this.sessions = await this.manager.listSessions()
-      return this.sessions.map((s) => new SessionTreeItem(s))
+      const activeId = this.manager.activeSession?.id
+      return this.sessions.map((s) => new SessionTreeItem(s, s.id === activeId))
     }
 
     if (element instanceof SessionTreeItem) {

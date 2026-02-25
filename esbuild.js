@@ -9,7 +9,7 @@ const buildOptions = {
   entryPoints: ['src/extension.ts'],
   bundle: true,
   outfile: 'out/extension.js',
-  external: ['vscode'],
+  external: ['vscode', 'kerberos'],
   format: 'cjs',
   platform: 'node',
   target: 'node18',

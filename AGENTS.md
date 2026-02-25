@@ -150,6 +150,13 @@ docs/
   - Supports `AbortSignal` for cancellation.
   - Adds `Authorization` header based on the configured auth method.
 - Do **not** hardcode URLs or credentials. Always read from configuration.
+- Supported auth methods: `'none'` | `'basic'` | `'bearer'` | `'kerberos'` (SPNEGO/Negotiate).
+- **Kerberos/SPNEGO auth** is implemented in `src/livy/kerberos.ts`:
+  - Uses the [`kerberos`](https://www.npmjs.com/package/kerberos) npm package (native addon, optional dependency).
+  - The package is lazy-loaded via `require()` so the extension works without it when other auth methods are used.
+  - `kerberos` must be listed in esbuild's `external` array (cannot be bundled).
+  - On Linux/macOS: requires a valid TGT in the credential cache (`kinit`). On Windows: uses SSPI with the domain login automatically.
+  - A new GSSAPI context is created per request (stateless); OS-level ticket caching makes this negligible overhead.
 
 ---
 

@@ -23,21 +23,39 @@ interface RequestOptions {
   readonly username: string
   readonly password: string
   readonly bearerToken: string
+  readonly kerberosServicePrincipal: string
+  readonly kerberosDelegateCredentials: boolean
 }
 
-function buildAuthHeader(
-  authMethod: AuthMethod,
-  username: string,
-  password: string,
-  bearerToken: string
-): string | undefined {
-  switch (authMethod) {
+async function buildAuthHeader(
+  opts: Pick<
+    RequestOptions,
+    | 'authMethod'
+    | 'username'
+    | 'password'
+    | 'bearerToken'
+    | 'kerberosServicePrincipal'
+    | 'kerberosDelegateCredentials'
+    | 'url'
+  >
+): Promise<string | undefined> {
+  switch (opts.authMethod) {
     case 'basic': {
-      const encoded = Buffer.from(`${username}:${password}`).toString('base64')
+      const encoded = Buffer.from(`${opts.username}:${opts.password}`).toString('base64')
       return `Basic ${encoded}`
     }
     case 'bearer':
-      return `Bearer ${bearerToken}`
+      return `Bearer ${opts.bearerToken}`
+    case 'kerberos': {
+      const { generateSpnegoToken } = await import('./kerberos')
+      const principal = opts.kerberosServicePrincipal
+        || `HTTP@${new URL(opts.url).hostname}`
+      const token = await generateSpnegoToken(
+        principal,
+        opts.kerberosDelegateCredentials
+      )
+      return `Negotiate ${token}`
+    }
     case 'none':
     default:
       return undefined
@@ -45,6 +63,10 @@ function buildAuthHeader(
 }
 
 async function request<T>(opts: RequestOptions): Promise<T> {
+  // Resolve auth header before entering the Promise constructor
+  // (async for Kerberos; effectively synchronous for all other methods)
+  const authHeader = await buildAuthHeader(opts)
+
   return new Promise<T>((resolve, reject) => {
     const url = new URL(opts.url)
     const isHttps = url.protocol === 'https:'
@@ -59,12 +81,6 @@ async function request<T>(opts: RequestOptions): Promise<T> {
       headers['Content-Length'] = Buffer.byteLength(bodyJson).toString()
     }
 
-    const authHeader = buildAuthHeader(
-      opts.authMethod,
-      opts.username,
-      opts.password,
-      opts.bearerToken
-    )
     if (authHeader !== undefined) {
       headers['Authorization'] = authHeader
     }
@@ -134,6 +150,8 @@ export interface LivyClientConfig {
   readonly username: string
   readonly password: string
   readonly bearerToken: string
+  readonly kerberosServicePrincipal: string
+  readonly kerberosDelegateCredentials: boolean
 }
 
 export class LivyClient {
@@ -142,6 +160,8 @@ export class LivyClient {
   private readonly username: string
   private readonly password: string
   private readonly bearerToken: string
+  private readonly kerberosServicePrincipal: string
+  private readonly kerberosDelegateCredentials: boolean
 
   constructor(config: LivyClientConfig) {
     // Normalise: strip trailing slash
@@ -150,6 +170,8 @@ export class LivyClient {
     this.username = config.username
     this.password = config.password
     this.bearerToken = config.bearerToken
+    this.kerberosServicePrincipal = config.kerberosServicePrincipal
+    this.kerberosDelegateCredentials = config.kerberosDelegateCredentials
   }
 
   private opts(
@@ -167,6 +189,8 @@ export class LivyClient {
       username: this.username,
       password: this.password,
       bearerToken: this.bearerToken,
+      kerberosServicePrincipal: this.kerberosServicePrincipal,
+      kerberosDelegateCredentials: this.kerberosDelegateCredentials,
     }
   }
 
@@ -251,3 +275,4 @@ export class LivyClient {
     )
   }
 }
+

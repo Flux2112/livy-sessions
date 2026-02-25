@@ -32,7 +32,7 @@ Select code, press `Shift+Enter`, and see the output in the **Livy** Output Chan
 - **Live status bar** — always shows the current session state
 - **Log viewer** — page through or tail session logs directly in VSCode
 - **Session restore** — reconnects to your last session automatically on startup
-- **Configurable auth** — supports unauthenticated, HTTP Basic, and Bearer token auth
+- **Configurable auth** — supports unauthenticated, HTTP Basic, Bearer token, and Kerberos/SPNEGO auth
 - **Full Spark resource configuration** — driver/executor memory, cores, JARs, Python files, and arbitrary `spark.*` properties
 
 ---
@@ -81,10 +81,12 @@ Open settings via `Ctrl+,` and search for `livy`, or edit `settings.json` direct
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `livy.authMethod` | `"none" \| "basic" \| "bearer"` | `"none"` | Authentication method for all API requests. |
+| `livy.authMethod` | `"none" \| "basic" \| "bearer" \| "kerberos"` | `"none"` | Authentication method for all API requests. |
 | `livy.username` | `string` | `""` | Username for Basic auth. Only used when `authMethod` is `"basic"`. |
 | `livy.password` | `string` | `""` | Password for Basic auth. Only used when `authMethod` is `"basic"`. |
 | `livy.bearerToken` | `string` | `""` | Token for Bearer auth. Only used when `authMethod` is `"bearer"`. |
+| `livy.kerberosServicePrincipal` | `string` | `""` | Kerberos service principal for SPNEGO auth, e.g. `HTTP@livy.example.com`. Only used when `authMethod` is `"kerberos"`. If left empty, defaults to `HTTP@<hostname>` derived from `livy.serverUrl`. |
+| `livy.kerberosDelegateCredentials` | `boolean` | `false` | Enable Kerberos credential delegation — forwards your TGT to the server so it can authenticate on your behalf to downstream services (e.g. HDFS via Knox). Only relevant when `authMethod` is `"kerberos"`. |
 
 **Recommendation:** Avoid storing passwords and tokens in `settings.json` if your workspace is shared or version-controlled. Prefer user-level (not workspace-level) settings for credentials.
 
@@ -106,6 +108,70 @@ Open settings via `Ctrl+,` and search for `livy`, or edit `settings.json` direct
 ```json
 "livy.authMethod": "bearer",
 "livy.bearerToken": "eyJhbGci..."
+```
+
+**Kerberos/SPNEGO (explicit principal):**
+```json
+"livy.authMethod": "kerberos",
+"livy.kerberosServicePrincipal": "HTTP@livy.corp.example.com"
+```
+
+**Kerberos/SPNEGO (derive principal from server URL, with credential delegation):**
+```json
+"livy.authMethod": "kerberos",
+"livy.kerberosDelegateCredentials": true
+```
+
+---
+
+### Kerberos Authentication
+
+The extension uses [SPNEGO/Negotiate](https://www.rfc-editor.org/rfc/rfc4559) — the same mechanism used by web browsers on domain-joined machines — to obtain a service ticket and attach it to every Livy API request.
+
+#### Prerequisites
+
+| Platform | Requirement |
+|---|---|
+| **Windows** (domain-joined) | No extra steps. The extension uses your existing Windows domain login (SSPI) automatically. |
+| **Linux / macOS** | A valid Kerberos ticket-granting ticket (TGT) must be present in the credential cache. Run `kinit` before using the extension. |
+
+The `kerberos` npm package (a native C++ addon maintained by MongoDB Inc.) must be installed in the extension directory:
+
+```bash
+npm install kerberos
+```
+
+Because `kerberos` is an **optional** dependency, `npm install` in the extension directory will attempt to compile it automatically. On Linux/macOS you need standard C++ build tools (`gcc`/`clang`, `make`, `python3`). On Windows you need the [Visual C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
+
+#### Required configuration
+
+| Setting | Required | Notes |
+|---|---|---|
+| `livy.authMethod` | **Yes** | Set to `"kerberos"`. |
+| `livy.serverUrl` | **Yes** | The Livy server URL. The hostname is used to derive the service principal if `livy.kerberosServicePrincipal` is empty. |
+| `livy.kerberosServicePrincipal` | No | Leave empty to auto-derive as `HTTP@<hostname>`. Set explicitly if the Kerberos SPN on your server differs from the hostname (common with Knox Gateway or load balancers). |
+| `livy.kerberosDelegateCredentials` | No | Set to `true` only when downstream services (e.g. HDFS accessed via Knox) need to authenticate as you. Defaults to `false`. |
+
+#### Minimal settings.json
+
+```json
+{
+  "livy.serverUrl": "https://knox.corp.example.com:8443/gateway/default/livy/v1",
+  "livy.authMethod": "kerberos"
+}
+```
+
+The principal `HTTP@knox.corp.example.com` is derived automatically from the URL hostname.
+
+#### Explicit principal and delegation
+
+```json
+{
+  "livy.serverUrl": "https://knox.corp.example.com:8443/gateway/default/livy/v1",
+  "livy.authMethod": "kerberos",
+  "livy.kerberosServicePrincipal": "HTTP@knox.corp.example.com",
+  "livy.kerberosDelegateCredentials": true
+}
 ```
 
 ### Session Defaults
@@ -253,6 +319,15 @@ Ensure `livy.defaultKind` matches the session kind (e.g., use `pyspark` for a Py
 
 **Authentication errors (401/403)**
 Verify `livy.authMethod`, `livy.username`, `livy.password`, or `livy.bearerToken` in your settings. Settings changes take effect immediately — no reload required.
+
+**"Kerberos authentication requires the 'kerberos' npm package"**
+The native addon is not installed. Run `npm install kerberos` in the extension directory (see [Kerberos Authentication](#kerberos-authentication) above). On Linux/macOS, ensure C++ build tools are available first.
+
+**"Kerberos ticket not found or expired"**
+You have no valid TGT. On Linux/macOS, run `kinit` and try again. On Windows, verify your domain login is active (`klist` in a terminal should show a valid ticket).
+
+**"Kerberos authentication failed for principal …"**
+The service principal does not match what the server expects. Check `livy.kerberosServicePrincipal`. You can inspect the expected SPN from the server's `WWW-Authenticate: Negotiate` header or ask your Kerberos administrator.
 
 **HTTPS certificate errors**
 If your Livy server uses a self-signed certificate, you may need to set `NODE_TLS_REJECT_UNAUTHORIZED=0` in your environment (not recommended for production) or add the certificate to your system trust store.

@@ -25,7 +25,7 @@ export type StatementState =
   | 'cancelling'
   | 'cancelled'
 
-export type AuthMethod = 'none' | 'basic' | 'bearer'
+export type AuthMethod = 'none' | 'basic' | 'bearer' | 'kerberos'
 
 // ─── Livy API Data Models ─────────────────────────────────────────────────────
 
@@ -149,6 +149,8 @@ export interface LivyConfig {
   readonly username: string
   readonly password: string
   readonly bearerToken: string
+  readonly kerberosServicePrincipal: string
+  readonly kerberosDelegateCredentials: boolean
   readonly defaultKind: SessionKind
   readonly sessionName: string
   readonly pollIntervalMs: number

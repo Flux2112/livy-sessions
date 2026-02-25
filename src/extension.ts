@@ -7,16 +7,20 @@ import { registerSessionCommands } from './commands/session'
 import { registerExecuteCommands } from './commands/execute'
 import { registerLogCommands } from './commands/logs'
 
+import type { AuthMethod } from './livy/types'
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function buildClientFromConfig(): LivyClient {
   const config = vscode.workspace.getConfiguration('livy')
   return new LivyClient({
     baseUrl: config.get<string>('serverUrl', 'http://localhost:8998'),
-    authMethod: config.get<'none' | 'basic' | 'bearer'>('authMethod', 'none'),
+    authMethod: config.get<AuthMethod>('authMethod', 'none'),
     username: config.get<string>('username', ''),
     password: config.get<string>('password', ''),
     bearerToken: config.get<string>('bearerToken', ''),
+    kerberosServicePrincipal: config.get<string>('kerberosServicePrincipal', ''),
+    kerberosDelegateCredentials: config.get<boolean>('kerberosDelegateCredentials', false),
   })
 }
 
