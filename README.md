@@ -334,6 +334,21 @@ If your Livy server uses a self-signed certificate, you may need to set `NODE_TL
 
 ---
 
+## CI/CD
+
+Every push to `main` triggers the **Publish** GitHub Actions workflow, which:
+
+1. Typechecks, lints, and runs tests — aborts on failure.
+2. Bumps the minor version in `package.json` and commits it back to `main` with `[skip ci]` to prevent a re-trigger.
+3. Creates and pushes a `vX.Y.0` git tag.
+4. Builds the production bundle and packages a `.vsix`.
+5. Publishes to the VS Code Marketplace via `vsce`.
+6. Uploads the `.vsix` as a GitHub Actions artifact for auditability.
+
+**Required secret:** `AZURE_PAT` — a VS Code Marketplace Personal Access Token, stored in the repository's Actions secrets.
+
+---
+
 ## License
 
-MIT
+GPL-3.0-or-later
