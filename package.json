@@ -2,7 +2,7 @@
   "name": "livy-session",
   "displayName": "Livy Session",
   "description": "Connect to Apache Livy and run Spark code interactively from VSCode",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "publisher": "DefySoftwareSolutions",
   "repository": {
     "type": "git",
