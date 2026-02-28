@@ -1,0 +1,17 @@
+.vscode/**
+.github/**
+src/**
+**/*.ts
+**/*.map
+**/*.test.js
+.gitignore
+.eslintrc.json
+tsconfig.json
+jest.config.js
+esbuild.js
+AGENTS.md
+node_modules/**
+coverage/**
+*.vsix
+logo.png
+media/livy.svg

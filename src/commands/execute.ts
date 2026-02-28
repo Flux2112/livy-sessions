@@ -22,7 +22,7 @@ export function registerExecuteCommands(
 async function cmdRunSelection(manager: SessionManager): Promise<void> {
   const editor = vscode.window.activeTextEditor
   if (!editor) {
-    vscode.window.showErrorMessage('No active editor.')
+    void vscode.window.showErrorMessage('No active editor.')
     return
   }
 
@@ -36,7 +36,7 @@ async function cmdRunSelection(manager: SessionManager): Promise<void> {
   }
 
   if (!code.trim()) {
-    vscode.window.showWarningMessage('Nothing to run: selection is empty.')
+    void vscode.window.showWarningMessage('Nothing to run: selection is empty.')
     return
   }
 
@@ -46,14 +46,14 @@ async function cmdRunSelection(manager: SessionManager): Promise<void> {
 async function cmdRunFile(manager: SessionManager): Promise<void> {
   const editor = vscode.window.activeTextEditor
   if (!editor) {
-    vscode.window.showErrorMessage('No active editor.')
+    void vscode.window.showErrorMessage('No active editor.')
     return
   }
 
   const code = editor.document.getText()
 
   if (!code.trim()) {
-    vscode.window.showWarningMessage('File is empty.')
+    void vscode.window.showWarningMessage('File is empty.')
     return
   }
 

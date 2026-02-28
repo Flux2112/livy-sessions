@@ -36,13 +36,13 @@ let kerberosModule: KerberosModule | undefined
  * Lazily load the `kerberos` npm package.
  * Throws a descriptive error if the package is not installed.
  */
-async function getKerberosModule(): Promise<KerberosModule> {
+function getKerberosModule(): KerberosModule {
   if (kerberosModule !== undefined) {
     return kerberosModule
   }
   try {
     // Dynamic require so the extension still loads when the package is absent.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     kerberosModule = require('kerberos') as KerberosModule
     return kerberosModule
   } catch {
@@ -65,7 +65,7 @@ export async function generateSpnegoToken(
   servicePrincipal: string,
   delegate: boolean
 ): Promise<string> {
-  const krb = await getKerberosModule()
+  const krb = getKerberosModule()
 
   let client: KerberosClient
   try {

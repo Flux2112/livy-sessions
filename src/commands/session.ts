@@ -89,7 +89,7 @@ async function cmdKillSession(
   }
 
   if (!manager.activeSession) {
-    vscode.window.showErrorMessage('No active Livy session.')
+    void vscode.window.showErrorMessage('No active Livy session.')
     return
   }
 
@@ -102,21 +102,21 @@ async function cmdKillSession(
   await manager.killSession()
 }
 
-async function cmdShowSessionInfo(
+function cmdShowSessionInfo(
   manager: SessionManager,
   item?: SessionTreeItem
-): Promise<void> {
+): void {
   if (item?.session) {
-    await manager.showSessionInfo(item.session)
+    manager.showSessionInfo(item.session)
   } else {
-    await manager.showSessionInfo()
+    manager.showSessionInfo()
   }
 }
 
 async function cmdRestartSession(manager: SessionManager): Promise<void> {
   const session = manager.activeSession
   if (!session) {
-    vscode.window.showErrorMessage('No active Livy session to restart.')
+    void vscode.window.showErrorMessage('No active Livy session to restart.')
     return
   }
 

@@ -133,7 +133,7 @@ export class SessionManager implements vscode.Disposable {
             current.state === 'killed'
           ) {
             this.log(`Session #${current.id} failed with state: ${current.state}`)
-            vscode.window.showErrorMessage(
+            void vscode.window.showErrorMessage(
               `Livy session failed with state: ${current.state}`
             )
             return
@@ -141,7 +141,7 @@ export class SessionManager implements vscode.Disposable {
 
           if (Date.now() > deadline) {
             this.log('Session creation timed out.')
-            vscode.window.showErrorMessage('Livy session creation timed out.')
+            void vscode.window.showErrorMessage('Livy session creation timed out.')
             return
           }
 
@@ -163,7 +163,7 @@ export class SessionManager implements vscode.Disposable {
         this._logOffset = 0
         this._onSessionChanged.fire({ session: current })
         this.log(`Session #${current.id} is ready (idle).`)
-        vscode.window.showInformationMessage(`Livy session #${current.id} is ready.`)
+        void vscode.window.showInformationMessage(`Livy session #${current.id} is ready.`)
       }
     )
   }
@@ -184,7 +184,7 @@ export class SessionManager implements vscode.Disposable {
       }
 
       if (sessions.length === 0) {
-        vscode.window.showInformationMessage('No active Livy sessions found.')
+        void vscode.window.showInformationMessage('No active Livy sessions found.')
         return
       }
 
@@ -209,7 +209,7 @@ export class SessionManager implements vscode.Disposable {
       await this.context.workspaceState.update(WORKSPACE_KEY_SESSION_ID, session.id)
       this._onSessionChanged.fire({ session })
       this.log(`Connected to session #${session.id} (${session.state})`)
-      vscode.window.showInformationMessage(
+      void vscode.window.showInformationMessage(
         `Connected to Livy session #${session.id}.`
       )
     } catch (err) {
@@ -223,14 +223,14 @@ export class SessionManager implements vscode.Disposable {
   async killSession(id?: number): Promise<void> {
     const sessionId = id ?? this._activeSession?.id
     if (sessionId === undefined) {
-      vscode.window.showErrorMessage('No active Livy session.')
+      void vscode.window.showErrorMessage('No active Livy session.')
       return
     }
 
     try {
       await this.client.deleteSession(sessionId)
       this.log(`Session #${sessionId} killed.`)
-      vscode.window.showInformationMessage(`Livy session #${sessionId} killed.`)
+      void vscode.window.showInformationMessage(`Livy session #${sessionId} killed.`)
     } catch (err) {
       this.handleError('Failed to kill session', err)
     } finally {
@@ -255,7 +255,7 @@ export class SessionManager implements vscode.Disposable {
     }
 
     if (sessions.length === 0) {
-      vscode.window.showInformationMessage('No Livy sessions to kill.')
+      void vscode.window.showInformationMessage('No Livy sessions to kill.')
       return
     }
 
@@ -280,7 +280,7 @@ export class SessionManager implements vscode.Disposable {
     this._activeSession = null
     await this.context.workspaceState.update(WORKSPACE_KEY_SESSION_ID, undefined)
     this._onSessionChanged.fire({ session: null })
-    vscode.window.showInformationMessage(`Killed ${killed} of ${sessions.length} session(s).`)
+    void vscode.window.showInformationMessage(`Killed ${killed} of ${sessions.length} session(s).`)
   }
 
   /**
@@ -312,7 +312,7 @@ export class SessionManager implements vscode.Disposable {
     cancellationToken?: vscode.CancellationToken
   ): Promise<LivyStatement | null> {
     if (!this._activeSession) {
-      vscode.window.showErrorMessage('No active Livy session.')
+      void vscode.window.showErrorMessage('No active Livy session.')
       return null
     }
 
@@ -355,7 +355,7 @@ export class SessionManager implements vscode.Disposable {
         this.log(`[${formatTimestamp(new Date())}] Statement #${statId} submitted (${kind})`)
 
         // Poll until terminal state
-        while (true) {
+        for (;;) {
           if (combinedToken.isCancellationRequested) {
             try {
               await this.client.cancelStatement(sessionId, statId)
@@ -402,7 +402,7 @@ export class SessionManager implements vscode.Disposable {
   async getLogs(sessionId?: number, from?: number, size?: number): Promise<LogResponse | null> {
     const sid = sessionId ?? this._activeSession?.id
     if (sid === undefined) {
-      vscode.window.showErrorMessage('No active Livy session.')
+      void vscode.window.showErrorMessage('No active Livy session.')
       return null
     }
 
@@ -429,7 +429,7 @@ export class SessionManager implements vscode.Disposable {
   async tailLogs(): Promise<void> {
     const sid = this._activeSession?.id
     if (sid === undefined) {
-      vscode.window.showErrorMessage('No active Livy session.')
+      void vscode.window.showErrorMessage('No active Livy session.')
       return
     }
 
@@ -445,10 +445,10 @@ export class SessionManager implements vscode.Disposable {
 
   // ─── Session Info ────────────────────────────────────────────────────────────
 
-  async showSessionInfo(session?: LivySession): Promise<void> {
+  showSessionInfo(session?: LivySession): void {
     const target = session ?? this._activeSession
     if (!target) {
-      vscode.window.showErrorMessage('No active Livy session.')
+      void vscode.window.showErrorMessage('No active Livy session.')
       return
     }
 
@@ -478,7 +478,7 @@ export class SessionManager implements vscode.Disposable {
       : `${prefix}: ${String(err)}`
 
     this.log(message)
-    vscode.window.showErrorMessage(message)
+    void vscode.window.showErrorMessage(message)
   }
 
   private printStatementResult(statement: LivyStatement): void {

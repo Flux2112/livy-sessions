@@ -177,7 +177,7 @@ async function uploadDependency(
       }
     )
   } catch (err) {
-    vscode.window.showErrorMessage(`Failed to upload ${filename}: ${String(err)}`)
+    void vscode.window.showErrorMessage(`Failed to upload ${filename}: ${String(err)}`)
     return
   }
 
@@ -254,7 +254,7 @@ async function uploadDirectory(
     )
   } catch (err) {
     if (String(err).includes('Cancelled')) return
-    vscode.window.showErrorMessage(`Failed to upload ${remoteName}: ${String(err)}`)
+    void vscode.window.showErrorMessage(`Failed to upload ${remoteName}: ${String(err)}`)
     return
   } finally {
     // 3. Clean up temp zip
@@ -333,7 +333,7 @@ async function removeDependency(
         }
       )
     } catch (err) {
-      vscode.window.showErrorMessage(`Failed to delete from HDFS: ${String(err)}`)
+      void vscode.window.showErrorMessage(`Failed to delete from HDFS: ${String(err)}`)
     }
   }
 
