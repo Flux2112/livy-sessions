@@ -81,6 +81,30 @@
         "command": "livy.tailLogs",
         "title": "Tail Livy Logs",
         "category": "Livy"
+      },
+      {
+        "command": "livy.uploadDependency",
+        "title": "Upload & Add Dependency",
+        "category": "Livy",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "livy.uploadDirectory",
+        "title": "Upload Directory as Livy Dependency",
+        "category": "Livy",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "livy.removeDependency",
+        "title": "Remove Dependency",
+        "category": "Livy",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "livy.restartSession",
+        "title": "Restart Session",
+        "category": "Livy",
+        "icon": "$(debug-restart)"
       }
     ],
     "viewsContainers": {
@@ -108,6 +132,18 @@
           "group": "livy@1"
         }
       ],
+      "explorer/context": [
+        {
+          "command": "livy.uploadDependency",
+          "when": "!explorerResourceIsFolder",
+          "group": "livy@1"
+        },
+        {
+          "command": "livy.uploadDirectory",
+          "when": "explorerResourceIsFolder",
+          "group": "livy@1"
+        }
+      ],
       "view/title": [
         {
           "command": "livy.createSession",
@@ -127,19 +163,34 @@
       ],
       "view/item/context": [
         {
-          "command": "livy.killSession",
-          "when": "view == livySessions && (viewItem == livySession || viewItem == livyActiveSession)",
+          "command": "livy.restartSession",
+          "when": "view == livySessions && viewItem == livyActiveSession",
           "group": "livy@1"
         },
         {
-          "command": "livy.showSessionInfo",
+          "command": "livy.killSession",
           "when": "view == livySessions && (viewItem == livySession || viewItem == livyActiveSession)",
           "group": "livy@2"
         },
         {
-          "command": "livy.getLogs",
+          "command": "livy.showSessionInfo",
           "when": "view == livySessions && (viewItem == livySession || viewItem == livyActiveSession)",
           "group": "livy@3"
+        },
+        {
+          "command": "livy.getLogs",
+          "when": "view == livySessions && (viewItem == livySession || viewItem == livyActiveSession)",
+          "group": "livy@4"
+        },
+        {
+          "command": "livy.restartSession",
+          "when": "view == livySessions && viewItem == livyPendingDepsRoot",
+          "group": "livy@1"
+        },
+        {
+          "command": "livy.removeDependency",
+          "when": "view == livySessions && (viewItem == livyDep || viewItem == livyDepPending)",
+          "group": "livy@4"
         }
       ]
     },
@@ -268,6 +319,32 @@
           "default": [],
           "description": "Additional pyFiles paths"
         },
+        "livy.files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Generic files distributed to executor working directories"
+        },
+        "livy.archives": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Archive files extracted on executors (e.g. hdfs:///envs/venv.zip#venv)"
+        },
+        "livy.hdfs.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "WebHDFS base URL, e.g. http://namenode:9870. If empty, upload commands are disabled."
+        },
+        "livy.hdfs.uploadPath": {
+          "type": "string",
+          "default": "/user/{username}/livy-deps",
+          "description": "HDFS path template for uploaded dependencies. {username} is substituted at runtime from livy.username."
+        },
         "livy.conf": {
           "type": "object",
           "default": {},
@@ -286,6 +363,7 @@
     "vscode:prepublish": "npm run build"
   },
   "devDependencies": {
+    "@types/archiver": "^7.0.0",
     "@types/jest": "^29.5.0",
     "@types/kerberos": "^1.1.0",
     "@types/node": "^20.0.0",
@@ -300,5 +378,8 @@
   },
   "optionalDependencies": {
     "kerberos": "^2.2.2"
+  },
+  "dependencies": {
+    "archiver": "^7.0.1"
   }
 }

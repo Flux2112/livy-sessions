@@ -11,6 +11,7 @@ import type {
   StatementListResponse,
 } from './types'
 import { LivyApiError } from './types'
+import { buildAuthHeader } from './auth'
 
 // ─── HTTP Helper ──────────────────────────────────────────────────────────────
 
@@ -25,41 +26,6 @@ interface RequestOptions {
   readonly bearerToken: string
   readonly kerberosServicePrincipal: string
   readonly kerberosDelegateCredentials: boolean
-}
-
-async function buildAuthHeader(
-  opts: Pick<
-    RequestOptions,
-    | 'authMethod'
-    | 'username'
-    | 'password'
-    | 'bearerToken'
-    | 'kerberosServicePrincipal'
-    | 'kerberosDelegateCredentials'
-    | 'url'
-  >
-): Promise<string | undefined> {
-  switch (opts.authMethod) {
-    case 'basic': {
-      const encoded = Buffer.from(`${opts.username}:${opts.password}`).toString('base64')
-      return `Basic ${encoded}`
-    }
-    case 'bearer':
-      return `Bearer ${opts.bearerToken}`
-    case 'kerberos': {
-      const { generateSpnegoToken } = await import('./kerberos')
-      const principal = opts.kerberosServicePrincipal
-        || `HTTP@${new URL(opts.url).hostname}`
-      const token = await generateSpnegoToken(
-        principal,
-        opts.kerberosDelegateCredentials
-      )
-      return `Negotiate ${token}`
-    }
-    case 'none':
-    default:
-      return undefined
-  }
 }
 
 async function request<T>(opts: RequestOptions): Promise<T> {

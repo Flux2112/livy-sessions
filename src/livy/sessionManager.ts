@@ -82,6 +82,12 @@ export class SessionManager implements vscode.Disposable {
       pyFiles:
         opts?.pyFiles ??
         (config.get<string[]>('pyFiles', []).length ? config.get<string[]>('pyFiles') : undefined),
+      files:
+        opts?.files ??
+        (config.get<string[]>('files', []).length ? config.get<string[]>('files') : undefined),
+      archives:
+        opts?.archives ??
+        (config.get<string[]>('archives', []).length ? config.get<string[]>('archives') : undefined),
       conf:
         opts?.conf ??
         (Object.keys(config.get<Record<string, string>>('conf', {})).length

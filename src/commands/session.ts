@@ -29,7 +29,10 @@ export function registerSessionCommands(
     ),
     vscode.commands.registerCommand('livy.refreshSessions', () => {
       provider.refresh()
-    })
+    }),
+    vscode.commands.registerCommand('livy.restartSession', () =>
+      cmdRestartSession(manager)
+    )
   )
 }
 
@@ -108,4 +111,24 @@ async function cmdShowSessionInfo(
   } else {
     await manager.showSessionInfo()
   }
+}
+
+async function cmdRestartSession(manager: SessionManager): Promise<void> {
+  const session = manager.activeSession
+  if (!session) {
+    vscode.window.showErrorMessage('No active Livy session to restart.')
+    return
+  }
+
+  const { kind, name } = session
+
+  const confirm = await vscode.window.showWarningMessage(
+    `Restart session #${session.id}? It will be killed and a new session will be created with all configured dependencies.`,
+    { modal: true },
+    'Restart'
+  )
+  if (confirm !== 'Restart') return
+
+  await manager.killSession(session.id)
+  await manager.createSession({ kind, name: name ?? undefined })
 }

@@ -162,5 +162,20 @@ export interface LivyConfig {
   readonly sessionTtl: string
   readonly jars: readonly string[]
   readonly pyFiles: readonly string[]
+  readonly files: readonly string[]
+  readonly archives: readonly string[]
   readonly conf: Readonly<Record<string, string>>
+}
+
+// ─── HDFS Client Configuration ────────────────────────────────────────────────
+
+export interface HdfsClientConfig {
+  readonly hdfsBaseUrl: string
+  readonly uploadPath: string
+  readonly authMethod: AuthMethod
+  readonly username: string
+  readonly password: string
+  readonly bearerToken: string
+  readonly kerberosServicePrincipal: string
+  readonly kerberosDelegateCredentials: boolean
 }
