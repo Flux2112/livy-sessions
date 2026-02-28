@@ -117,7 +117,7 @@
         {
           "id": "livyExplorer",
           "title": "Livy Sessions",
-          "icon": "media/livy.png"
+          "icon": "media/livy.svg"
         }
       ]
     },

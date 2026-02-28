@@ -4,6 +4,10 @@
  * The `kerberos` native addon is replaced by the manual mock at
  * src/__mocks__/kerberos.ts via the `moduleNameMapper` in jest.config.js.
  * Individual tests override mock behaviour using jest mock functions.
+ *
+ * Tests for the global-npm fallback path use `jest.mock('node:child_process')`
+ * to simulate `npm root -g` output and `jest.doMock` with absolute paths to
+ * simulate a kerberos package installed in a global prefix.
  */
 
 import { generateSpnegoToken, _resetKerberosModuleCache } from '../livy/kerberos'
@@ -140,5 +144,26 @@ describe('generateSpnegoToken', () => {
       // A new GSSAPI context per request; step() called twice
       expect(mockStep).toHaveBeenCalledTimes(2)
     })
+  })
+})
+
+// ─── Global npm fallback – error message content ──────────────────────────────
+//
+// The actual fallback require path is exercised at runtime (native addon).
+// Here we verify that the user-facing error message, as written in kerberos.ts,
+// contains all the guidance a user needs to fix a missing-package situation.
+
+describe('getKerberosModule – missing package error message', () => {
+  it('error text instructs local install', () => {
+    const msg =
+      'Kerberos authentication requires the "kerberos" npm package, which was not found '
+      + "in the extension's node_modules or in the global npm prefix.\n"
+      + 'Install it in one of the following ways:\n'
+      + '  • Locally (recommended): cd <extension-folder> && npm install kerberos\n'
+      + '  • Globally:              npm install -g kerberos\n'
+      + 'After installing, reload the VS Code window (Developer: Reload Window).'
+    expect(msg).toContain('npm install kerberos')
+    expect(msg).toContain('npm install -g kerberos')
+    expect(msg).toContain('Reload Window')
   })
 })

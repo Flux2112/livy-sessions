@@ -12,6 +12,10 @@
  *   runs only once per extension host lifetime.
  * - A new GSSAPI context is created per call. Kerberos service tickets are
  *   cached at the OS level, so there is no meaningful overhead.
+ * - Resolution order:
+ *     1. Normal Node.js module resolution (extension's own node_modules).
+ *     2. Global npm prefix (`npm root -g`) — covers `npm install -g kerberos`.
+ *     3. Descriptive error with install instructions.
  */
 
 interface KerberosClient {
@@ -33,24 +37,64 @@ interface KerberosModule {
 let kerberosModule: KerberosModule | undefined
 
 /**
+ * Attempt to resolve the `kerberos` native addon from the global npm prefix.
+ * Returns the module if found, or `undefined` if the global prefix cannot be
+ * determined or the package is not installed there.
+ */
+function tryRequireFromGlobalNpm(): KerberosModule | undefined {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { execSync } = require('node:child_process') as typeof import('child_process')
+    const globalRoot = execSync('npm root -g', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+    if (!globalRoot) {
+      return undefined
+    }
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require(`${globalRoot}/kerberos`) as KerberosModule
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Lazily load the `kerberos` npm package.
- * Throws a descriptive error if the package is not installed.
+ *
+ * Resolution order:
+ *   1. Normal Node.js resolution (extension's own `node_modules`).
+ *   2. Global npm prefix — covers `npm install -g kerberos`.
+ *   3. Throws a descriptive error with install instructions.
  */
 function getKerberosModule(): KerberosModule {
   if (kerberosModule !== undefined) {
     return kerberosModule
   }
+
+  // 1. Standard resolution (local node_modules).
   try {
     // Dynamic require so the extension still loads when the package is absent.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     kerberosModule = require('kerberos') as KerberosModule
     return kerberosModule
   } catch {
-    throw new Error(
-      'Kerberos authentication requires the "kerberos" npm package. '
-      + 'Install it with: npm install kerberos'
-    )
+    // Fall through to global resolution.
   }
+
+  // 2. Global npm prefix (e.g. `npm install -g kerberos`).
+  const globalMod = tryRequireFromGlobalNpm()
+  if (globalMod !== undefined) {
+    kerberosModule = globalMod
+    return kerberosModule
+  }
+
+  // 3. Not found anywhere — surface a clear, actionable error.
+  throw new Error(
+    'Kerberos authentication requires the "kerberos" npm package, which was not found '
+    + 'in the extension\'s node_modules or in the global npm prefix.\n'
+    + 'Install it in one of the following ways:\n'
+    + '  • Locally (recommended): cd <extension-folder> && npm install kerberos\n'
+    + '  • Globally:              npm install -g kerberos\n'
+    + 'After installing, reload the VS Code window (Developer: Reload Window).'
+  )
 }
 
 /**

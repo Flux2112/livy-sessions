@@ -1,5 +1,56 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
-  <circle cx="50" cy="50" r="45" fill="#E8630A" />
-  <text x="50" y="58" font-family="monospace" font-size="32" font-weight="bold" text-anchor="middle" fill="white">L</text>
-  <path d="M 20 70 Q 50 85 80 70" stroke="white" stroke-width="3" fill="none"/>
+  <defs>
+    <linearGradient id="leftArcGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F5A623"/>
+      <stop offset="100%" stop-color="#E8400A"/>
+    </linearGradient>
+    <linearGradient id="rightArcGrad" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#C0392B"/>
+      <stop offset="100%" stop-color="#7B241C"/>
+    </linearGradient>
+  </defs>
+
+  <!--
+    The logo: two C-shaped arcs forming a near-full circle with a gap at top-right and bottom-right,
+    like a circular arrow / refresh icon split into left (orange) and right (red) halves.
+
+    Circle centre: (50,50), radius: 38, stroke-width: 12
+    Left arc  : from ~120° to ~330° going clockwise  (the big orange C opening to the right)
+    Right arc : from ~330° to ~120° going clockwise  (the smaller red C opening to the left, with arrow head)
+
+    Angles in SVG (x right, y down):
+      0°   → (88, 50)
+      90°  → (50, 88)
+      120° → (31, 83)
+      180° → (12, 50)
+      270° → (50, 12)
+      330° → (69, 17)
+
+    Arc path: M startX startY A rx ry x-rot large-arc sweep endX endY
+    sweep=1 → clockwise
+  -->
+
+  <!-- Left / orange arc: 120° → 330° clockwise  (large arc = 1, ~210°) -->
+  <path
+    d="M 31,83 A 38,38 0 1 1 69,17"
+    fill="none"
+    stroke="url(#leftArcGrad)"
+    stroke-width="11"
+    stroke-linecap="round"
+  />
+
+  <!-- Right / red arc: 330° → 120° clockwise  (small arc = 0, ~150°) -->
+  <path
+    d="M 69,17 A 38,38 0 0 1 31,83"
+    fill="none"
+    stroke="url(#rightArcGrad)"
+    stroke-width="11"
+    stroke-linecap="round"
+  />
+
+  <!-- Lightning bolt centred in the circle, white -->
+  <polygon
+    points="55,18 43,50 52,50 45,82 63,46 53,46 62,18"
+    fill="white"
+  />
 </svg>
