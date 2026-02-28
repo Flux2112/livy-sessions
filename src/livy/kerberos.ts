@@ -113,14 +113,11 @@ export async function generateSpnegoToken(
 
   let client: KerberosClient
   try {
-    // Build the GSS flags bitmask. Always include MUTUAL and SEQUENCE (the
-    // kerberos package defaults to these when no flags are supplied, but we
-    // set them explicitly so the behaviour is the same whether or not
-    // delegation is requested).
-    const gssFlags = krb.GSS_C_DELEG_FLAG  // = 1
-    const mutualFlag = 2                    // GSS_C_MUTUAL_FLAG
-    const sequenceFlag = 8                  // GSS_C_SEQUENCE_FLAG
-    const flags = (delegate ? gssFlags : 0) | mutualFlag | sequenceFlag
+    // Build the GSS flags bitmask.
+    // For Knox gateways, forcing MUTUAL/SEQUENCE can produce tokens that are
+    // rejected by some deployments; only request delegation when explicitly
+    // configured.
+    const flags = delegate ? krb.GSS_C_DELEG_FLAG : 0
 
     client = await krb.initializeClient(servicePrincipal, {
       mechOID: krb.GSS_MECH_OID_SPNEGO,

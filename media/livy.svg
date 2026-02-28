@@ -51,6 +51,7 @@
   <!-- Lightning bolt centred in the circle, white -->
   <polygon
     points="55,18 43,50 52,50 45,82 63,46 53,46 62,18"
+    transform="translate(-3 0)"
     fill="white"
   />
 </svg>
