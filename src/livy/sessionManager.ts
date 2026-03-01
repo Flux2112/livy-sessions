@@ -473,12 +473,25 @@ export class SessionManager implements vscode.Disposable {
   }
 
   private handleError(prefix: string, err: unknown): void {
-    const message = err instanceof LivyApiError
-      ? `${prefix}: HTTP ${err.statusCode} – ${err.body.substring(0, 200)}`
-      : `${prefix}: ${String(err)}`
-
-    this.log(message)
-    void vscode.window.showErrorMessage(message)
+    if (err instanceof LivyApiError) {
+      // Log full details to the Output Channel (no truncation)
+      this.log(`${prefix}: HTTP ${err.statusCode}`)
+      this.log(`Response body:\n${err.body}`)
+      // Show a shorter message in the notification, but still useful
+      const bodyPreview = err.body.length > 300
+        ? err.body.substring(0, 300) + '…'
+        : err.body
+      void vscode.window.showErrorMessage(`${prefix}: HTTP ${err.statusCode} – ${bodyPreview}`)
+    } else {
+      const message = err instanceof Error ? err.message : String(err)
+      this.log(`${prefix}: ${message}`)
+      if (err instanceof Error && err.stack) {
+        this.log(`Stack trace:\n${err.stack}`)
+      }
+      void vscode.window.showErrorMessage(`${prefix}: ${message}`)
+    }
+    // Always show the output channel on errors so the user can see the full log
+    this.output.show(true)
   }
 
   private printStatementResult(statement: LivyStatement): void {

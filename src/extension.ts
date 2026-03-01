@@ -14,7 +14,7 @@ import type { AuthMethod } from './livy/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function buildClientFromConfig(): LivyClient {
+function buildClientFromConfig(output: vscode.OutputChannel): LivyClient {
   const config = vscode.workspace.getConfiguration('livy')
   return new LivyClient({
     baseUrl: config.get<string>('serverUrl', 'http://localhost:8998'),
@@ -24,6 +24,7 @@ function buildClientFromConfig(): LivyClient {
     bearerToken: config.get<string>('bearerToken', ''),
     kerberosServicePrincipal: config.get<string>('kerberosServicePrincipal', ''),
     kerberosDelegateCredentials: config.get<boolean>('kerberosDelegateCredentials', false),
+    log: (msg: string) => output.appendLine(msg),
   })
 }
 
@@ -40,7 +41,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(output)
 
   // HTTP client (read from config at activation time; re-created on config change)
-  let client = buildClientFromConfig()
+  let client = buildClientFromConfig(output)
 
   // HDFS client (null when livy.hdfs.baseUrl is not configured)
   let hdfsClient = buildHdfsClient(output)
@@ -80,7 +81,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('livy')) {
-        client = buildClientFromConfig()
+        client = buildClientFromConfig(output)
         manager.setClient(client)
         hdfsClient = buildHdfsClient(output)
         treeProvider.refresh()

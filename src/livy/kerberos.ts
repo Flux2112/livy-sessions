@@ -18,6 +18,9 @@
  *     3. Descriptive error with install instructions.
  */
 
+import type { LogFn } from './types'
+import { noopLog } from './types'
+
 interface KerberosClient {
   step(challenge: string): Promise<string>
 }
@@ -36,22 +39,30 @@ interface KerberosModule {
 /** Cached module reference so the dynamic require runs only once. */
 let kerberosModule: KerberosModule | undefined
 
+/** Tracks where the module was loaded from for diagnostic logging. */
+let kerberosSource: 'local' | 'global' | undefined
+
 /**
  * Attempt to resolve the `kerberos` native addon from the global npm prefix.
  * Returns the module if found, or `undefined` if the global prefix cannot be
  * determined or the package is not installed there.
  */
-function tryRequireFromGlobalNpm(): KerberosModule | undefined {
+function tryRequireFromGlobalNpm(log: LogFn): KerberosModule | undefined {
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { execSync } = require('node:child_process') as typeof import('child_process')
     const globalRoot = execSync('npm root -g', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
     if (!globalRoot) {
+      log('[kerberos] npm root -g returned empty string')
       return undefined
     }
+    log(`[kerberos] Trying global npm root: ${globalRoot}`)
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require(`${globalRoot}/kerberos`) as KerberosModule
-  } catch {
+    const mod = require(`${globalRoot}/kerberos`) as KerberosModule
+    log(`[kerberos] Loaded from global npm root`)
+    return mod
+  } catch (err: unknown) {
+    log(`[kerberos] Global npm resolution failed: ${err instanceof Error ? err.message : String(err)}`)
     return undefined
   }
 }
@@ -64,25 +75,31 @@ function tryRequireFromGlobalNpm(): KerberosModule | undefined {
  *   2. Global npm prefix — covers `npm install -g kerberos`.
  *   3. Throws a descriptive error with install instructions.
  */
-function getKerberosModule(): KerberosModule {
+function getKerberosModule(log: LogFn): KerberosModule {
   if (kerberosModule !== undefined) {
+    log(`[kerberos] Using cached module (loaded from: ${kerberosSource ?? 'unknown'})`)
     return kerberosModule
   }
 
   // 1. Standard resolution (local node_modules).
   try {
+    log('[kerberos] Attempting local require("kerberos")…')
     // Dynamic require so the extension still loads when the package is absent.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     kerberosModule = require('kerberos') as KerberosModule
+    kerberosSource = 'local'
+    log('[kerberos] Loaded from local node_modules')
     return kerberosModule
-  } catch {
+  } catch (err: unknown) {
+    log(`[kerberos] Local resolution failed: ${err instanceof Error ? err.message : String(err)}`)
     // Fall through to global resolution.
   }
 
   // 2. Global npm prefix (e.g. `npm install -g kerberos`).
-  const globalMod = tryRequireFromGlobalNpm()
+  const globalMod = tryRequireFromGlobalNpm(log)
   if (globalMod !== undefined) {
     kerberosModule = globalMod
+    kerberosSource = 'global'
     return kerberosModule
   }
 
@@ -102,14 +119,19 @@ function getKerberosModule(): KerberosModule {
  *
  * @param servicePrincipal - e.g. "HTTP@livy.example.com"
  * @param delegate - whether to enable Kerberos credential delegation
+ * @param log - optional logger callback for diagnostic output
  * @returns Base64-encoded SPNEGO token suitable for the `Authorization: Negotiate` header
  * @throws {Error} if the `kerberos` package is missing, no valid TGT exists, or token generation fails
  */
 export async function generateSpnegoToken(
   servicePrincipal: string,
-  delegate: boolean
+  delegate: boolean,
+  log: LogFn = noopLog
 ): Promise<string> {
-  const krb = getKerberosModule()
+  log(`[kerberos] generateSpnegoToken called — principal="${servicePrincipal}", delegate=${delegate}, platform=${process.platform}`)
+  const krb = getKerberosModule(log)
+
+  log(`[kerberos] Module constants: GSS_MECH_OID_SPNEGO=${krb.GSS_MECH_OID_SPNEGO}, GSS_C_DELEG_FLAG=${krb.GSS_C_DELEG_FLAG}`)
 
   let client: KerberosClient
   try {
@@ -131,9 +153,15 @@ export async function generateSpnegoToken(
       flags: delegate ? krb.GSS_C_DELEG_FLAG : 0,
     }
 
+    log(`[kerberos] Calling initializeClient("${servicePrincipal}", ${JSON.stringify(initOptions)})`)
     client = await krb.initializeClient(servicePrincipal, initOptions)
+    log(`[kerberos] initializeClient succeeded`)
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
+    log(`[kerberos] initializeClient FAILED: ${msg}`)
+    if (err instanceof Error && err.stack) {
+      log(`[kerberos] Stack: ${err.stack}`)
+    }
     // Surface actionable guidance for the most common failure: no TGT
     if (/ticket|credential|no.*kerberos|kinit|expired/i.test(msg)) {
       throw new Error(
@@ -151,13 +179,31 @@ export async function generateSpnegoToken(
     throw new Error(`Kerberos initializeClient failed: ${msg}`)
   }
 
+  log(`[kerberos] Calling client.step("") to generate SPNEGO token…`)
   const token = await client.step('')
   if (!token) {
+    log(`[kerberos] client.step("") returned empty/null token`)
     throw new Error(
       'Kerberos SPNEGO token generation returned an empty result. '
       + 'Ensure you have a valid Kerberos ticket (run "kinit" on Linux/macOS '
       + 'or verify your domain credentials on Windows).'
     )
+  }
+
+  // Log token diagnostics (safe — we only log length and prefix, never the full token)
+  const tokenBytes = Buffer.from(token, 'base64')
+  const firstByte = tokenBytes.length > 0 ? tokenBytes[0].toString(16).padStart(2, '0') : '??'
+  log(`[kerberos] Token generated — base64Length=${token.length}, byteLength=${tokenBytes.length}, firstByte=0x${firstByte}`)
+
+  // Identify token type from first byte for diagnostics:
+  //   0x60 = ASN.1 Application[0] = SPNEGO/Kerberos (correct)
+  //   0x4e = ASCII 'N' = start of "NTLMSSP" (NTLM fallback)
+  if (firstByte === '60') {
+    log(`[kerberos] Token type: SPNEGO (ASN.1 Application[0]) — looks correct`)
+  } else if (token.startsWith('TlRMTVNTUAA')) {
+    log(`[kerberos] Token type: NTLM (starts with "NTLMSSP\\0" signature) — WRONG, expected SPNEGO`)
+  } else {
+    log(`[kerberos] Token type: UNKNOWN (firstByte=0x${firstByte}) — expected 0x60 for SPNEGO`)
   }
 
   // On Windows, the Negotiate SSPI package silently falls back to NTLM when
@@ -182,6 +228,7 @@ export async function generateSpnegoToken(
     )
   }
 
+  log(`[kerberos] SPNEGO token ready for principal "${servicePrincipal}"`)
   return token
 }
 
@@ -191,4 +238,5 @@ export async function generateSpnegoToken(
  */
 export function _resetKerberosModuleCache(): void {
   kerberosModule = undefined
+  kerberosSource = undefined
 }

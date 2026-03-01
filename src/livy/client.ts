@@ -4,13 +4,14 @@ import type {
   AuthMethod,
   CreateSessionRequest,
   CreateStatementRequest,
+  LogFn,
   LogResponse,
   LivySession,
   LivyStatement,
   SessionListResponse,
   StatementListResponse,
 } from './types'
-import { LivyApiError } from './types'
+import { LivyApiError, noopLog } from './types'
 import { buildAuthHeader } from './auth'
 
 // ─── HTTP Helper ──────────────────────────────────────────────────────────────
@@ -26,12 +27,35 @@ interface RequestOptions {
   readonly bearerToken: string
   readonly kerberosServicePrincipal: string
   readonly kerberosDelegateCredentials: boolean
+  readonly log: LogFn
 }
 
 async function request<T>(opts: RequestOptions): Promise<T> {
+  const log = opts.log
+
+  log(`[http] → ${opts.method} ${opts.url}`)
+  if (opts.body !== undefined) {
+    const bodyStr = JSON.stringify(opts.body)
+    log(`[http]   Request body (${bodyStr.length} chars): ${bodyStr.substring(0, 500)}${bodyStr.length > 500 ? '…' : ''}`)
+  }
+  log(`[http]   Auth method: ${opts.authMethod}`)
+
   // Resolve auth header before entering the Promise constructor
   // (async for Kerberos; effectively synchronous for all other methods)
-  const authHeader = await buildAuthHeader(opts)
+  let authHeader: string | undefined
+  try {
+    authHeader = await buildAuthHeader({ ...opts })
+  } catch (err: unknown) {
+    log(`[http]   Auth header generation FAILED: ${err instanceof Error ? err.message : String(err)}`)
+    throw err
+  }
+
+  if (authHeader !== undefined) {
+    // Log auth header type but not the full value (contains credentials/tokens)
+    const headerType = authHeader.split(' ')[0]
+    const headerValueLen = authHeader.length - headerType.length - 1
+    log(`[http]   Authorization: ${headerType} <${headerValueLen} chars>`)
+  }
 
   return new Promise<T>((resolve, reject) => {
     const url = new URL(opts.url)
@@ -69,32 +93,56 @@ async function request<T>(opts: RequestOptions): Promise<T> {
         const rawBody = Buffer.concat(chunks).toString('utf8')
         const statusCode = res.statusCode ?? 0
 
+        log(`[http] ← ${statusCode} ${res.statusMessage ?? ''} (${rawBody.length} bytes)`)
+
+        // Log response headers that are useful for debugging auth issues
+        const wwwAuth = res.headers['www-authenticate']
+        if (wwwAuth) {
+          log(`[http]   WWW-Authenticate: ${wwwAuth}`)
+        }
+        const contentType = res.headers['content-type']
+        if (contentType) {
+          log(`[http]   Content-Type: ${contentType}`)
+        }
+        const setCookie = res.headers['set-cookie']
+        if (setCookie) {
+          log(`[http]   Set-Cookie: ${setCookie.map(c => c.split(';')[0]).join('; ')}`)
+        }
+
         if (statusCode < 200 || statusCode >= 300) {
+          // Log the FULL response body for non-2xx — critical for debugging
+          log(`[http]   Error response body:\n${rawBody}`)
           reject(new LivyApiError(statusCode, rawBody))
           return
         }
 
         // 204 No Content or empty body
         if (!rawBody.trim()) {
+          log(`[http]   (empty response body)`)
           resolve(undefined as unknown as T)
           return
         }
 
         try {
-          resolve(JSON.parse(rawBody) as T)
+          const parsed = JSON.parse(rawBody) as T
+          log(`[http]   Response parsed OK`)
+          resolve(parsed)
         } catch {
+          log(`[http]   Failed to parse response JSON: ${rawBody.substring(0, 500)}`)
           reject(new LivyApiError(statusCode, rawBody, `Failed to parse response JSON: ${rawBody}`))
         }
       })
     })
 
     req.on('error', (err) => {
+      log(`[http]   Request error: ${err.message}`)
       reject(err)
     })
 
     // Handle AbortSignal
     if (opts.signal) {
       opts.signal.addEventListener('abort', () => {
+        log(`[http]   Request aborted`)
         req.destroy()
         reject(new Error('Request aborted'))
       })
@@ -118,6 +166,7 @@ export interface LivyClientConfig {
   readonly bearerToken: string
   readonly kerberosServicePrincipal: string
   readonly kerberosDelegateCredentials: boolean
+  readonly log?: LogFn
 }
 
 export class LivyClient {
@@ -128,6 +177,7 @@ export class LivyClient {
   private readonly bearerToken: string
   private readonly kerberosServicePrincipal: string
   private readonly kerberosDelegateCredentials: boolean
+  private readonly log: LogFn
 
   constructor(config: LivyClientConfig) {
     // Normalise: strip trailing slash
@@ -138,6 +188,7 @@ export class LivyClient {
     this.bearerToken = config.bearerToken
     this.kerberosServicePrincipal = config.kerberosServicePrincipal
     this.kerberosDelegateCredentials = config.kerberosDelegateCredentials
+    this.log = config.log ?? noopLog
   }
 
   private opts(
@@ -157,6 +208,7 @@ export class LivyClient {
       bearerToken: this.bearerToken,
       kerberosServicePrincipal: this.kerberosServicePrincipal,
       kerberosDelegateCredentials: this.kerberosDelegateCredentials,
+      log: this.log,
     }
   }
 

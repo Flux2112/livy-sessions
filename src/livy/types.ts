@@ -167,6 +167,14 @@ export interface LivyConfig {
   readonly conf: Readonly<Record<string, string>>
 }
 
+// ─── Logging ──────────────────────────────────────────────────────────────────
+
+/** Simple log callback threaded through the client / auth / kerberos layers. */
+export type LogFn = (message: string) => void
+
+/** A no-op logger for when no output channel is available. */
+export const noopLog: LogFn = () => { /* intentionally empty */ }
+
 // ─── HDFS Client Configuration ────────────────────────────────────────────────
 
 export interface HdfsClientConfig {

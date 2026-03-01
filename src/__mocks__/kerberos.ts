@@ -11,8 +11,9 @@ import { jest } from '@jest/globals'
 
 export const mockStep = jest.fn<() => Promise<string>>().mockResolvedValue('default-token')
 
-export const mockInitializeClient = jest.fn<() => Promise<{ step: typeof mockStep }>>()
-  .mockResolvedValue({ step: mockStep })
+export const mockInitializeClient = jest.fn<
+  (service: string, options: { mechOID?: number; flags?: number }) => Promise<{ step: typeof mockStep }>
+>().mockResolvedValue({ step: mockStep })
 
 // Real numeric constants from the kerberos package
 export const GSS_MECH_OID_SPNEGO = 6
