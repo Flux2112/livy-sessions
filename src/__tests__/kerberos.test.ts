@@ -78,6 +78,45 @@ describe('generateSpnegoToken', () => {
     })
   })
 
+  // ── NTLM fallback detection ────────────────────────────────────────────
+
+  describe('when Windows SSPI falls back to NTLM', () => {
+    // "NTLMSSP\0" + type-1 byte = NTLM Negotiate message.
+    // base64("NTLMSSP\0\x01") = "TlRMTVNTUAAB..."
+    const ntlmType1Base64 = Buffer.from('NTLMSSP\0\x01\x00\x00\x00\x00\x00\x00\x00', 'binary').toString('base64')
+
+    beforeEach(() => {
+      mockStep.mockResolvedValue(ntlmType1Base64)
+    })
+
+    it('rejects the NTLM token with an error mentioning NTLM', async () => {
+      await expect(generateSpnegoToken('HTTP@host.example.com', false))
+        .rejects.toThrow('NTLM')
+    })
+
+    it('includes guidance about KDC reachability', async () => {
+      await expect(generateSpnegoToken('HTTP@host.example.com', false))
+        .rejects.toThrow('KDC')
+    })
+
+    it('includes guidance to run klist', async () => {
+      await expect(generateSpnegoToken('HTTP@host.example.com', false))
+        .rejects.toThrow('klist')
+    })
+
+    it('includes the service principal in the error', async () => {
+      await expect(generateSpnegoToken('HTTP@knox.example.com', false))
+        .rejects.toThrow('HTTP@knox.example.com')
+    })
+
+    it('does not throw for a valid SPNEGO token starting with "Y"', async () => {
+      // SPNEGO tokens are ASN.1 Application[0], first byte 0x60 → base64 starts with "Y"
+      mockStep.mockResolvedValue('YIIBhAYJKoZIhvcSAQIC...')
+      const token = await generateSpnegoToken('HTTP@host', false)
+      expect(token).toBe('YIIBhAYJKoZIhvcSAQIC...')
+    })
+  })
+
   // ── Empty token ───────────────────────────────────────────────────────────
 
   describe('when client.step() returns an empty string', () => {

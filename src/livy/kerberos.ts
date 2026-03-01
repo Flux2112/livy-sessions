@@ -159,6 +159,29 @@ export async function generateSpnegoToken(
       + 'or verify your domain credentials on Windows).'
     )
   }
+
+  // On Windows, the Negotiate SSPI package silently falls back to NTLM when
+  // Kerberos authentication is not possible (e.g. KDC unreachable, invalid
+  // SPN, no valid TGT). Knox and other SPNEGO-only gateways cannot process
+  // NTLM tokens — they attempt to parse the binary as ASN.1 and fail with
+  // errors like "newLimit > capacity: (84 > 50)".
+  //
+  // NTLM tokens always start with the ASCII signature "NTLMSSP\0", which
+  // base64-encodes to "TlRMTVNTUAA". This prefix is structurally unique to
+  // NTLM and cannot appear in a valid SPNEGO or Kerberos token.
+  if (token.startsWith('TlRMTVNTUAA')) {
+    throw new Error(
+      'Kerberos authentication failed: Windows SSPI negotiated NTLM instead of Kerberos. '
+      + 'This typically means the KDC is unreachable, the service principal name (SPN) is '
+      + 'incorrect, or there is no valid Kerberos TGT in the credential cache.\n'
+      + 'Troubleshooting steps:\n'
+      + '  1. Run "klist" in a terminal to verify you have a valid Kerberos ticket.\n'
+      + '  2. If no ticket exists, run "kinit" or check your domain login.\n'
+      + `  3. Verify the service principal "${servicePrincipal}" is correct.\n`
+      + '  4. Ensure the KDC (domain controller) is reachable from this machine.'
+    )
+  }
+
   return token
 }
 
