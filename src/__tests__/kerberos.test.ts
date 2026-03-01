@@ -10,7 +10,7 @@
  * simulate a kerberos package installed in a global prefix.
  */
 
-import { generateSpnegoToken, _resetKerberosModuleCache } from '../livy/kerberos'
+import { generateSpnegoToken, normalizePrincipal, _resetKerberosModuleCache } from '../livy/kerberos'
 import { mockInitializeClient, mockStep, GSS_MECH_OID_SPNEGO, GSS_C_DELEG_FLAG } from '../__mocks__/kerberos'
 
 // ─── Setup / teardown ─────────────────────────────────────────────────────────
@@ -38,10 +38,10 @@ describe('generateSpnegoToken', () => {
       expect(token).toBe('SGVsbG8gV29ybGQ=')
     })
 
-    it('passes the service principal to initializeClient', async () => {
+    it('passes the normalised service principal to initializeClient', async () => {
       await generateSpnegoToken('HTTP@specific.host', false)
       expect(mockInitializeClient).toHaveBeenCalledWith(
-        'HTTP@specific.host',
+        normalizePrincipal('HTTP@specific.host'),
         expect.any(Object)
       )
     })
@@ -104,9 +104,10 @@ describe('generateSpnegoToken', () => {
         .rejects.toThrow('klist')
     })
 
-    it('includes the service principal in the error', async () => {
+    it('includes the (normalised) service principal in the error', async () => {
+      const expected = normalizePrincipal('HTTP@knox.example.com')
       await expect(generateSpnegoToken('HTTP@knox.example.com', false))
-        .rejects.toThrow('HTTP@knox.example.com')
+        .rejects.toThrow(expected)
     })
 
     it('does not throw for a valid SPNEGO token starting with "Y"', async () => {
@@ -164,9 +165,10 @@ describe('generateSpnegoToken', () => {
       )
     })
 
-    it('includes the principal name in the error message', async () => {
+    it('includes the (normalised) principal name in the error message', async () => {
+      const expected = normalizePrincipal('HTTP@wrong.host')
       await expect(generateSpnegoToken('HTTP@wrong.host', false))
-        .rejects.toThrow('HTTP@wrong.host')
+        .rejects.toThrow(expected)
     })
 
     it('mentions the livy.kerberosServicePrincipal setting', async () => {
@@ -193,6 +195,42 @@ describe('generateSpnegoToken', () => {
       await generateSpnegoToken('HTTP@host', false)
       // A new GSSAPI context per request; step() called twice
       expect(mockStep).toHaveBeenCalledTimes(2)
+    })
+  })
+})
+
+// ─── normalizePrincipal ───────────────────────────────────────────────────────
+
+describe('normalizePrincipal', () => {
+  describe('on Windows (win32)', () => {
+    it('converts "HTTP@host" to "HTTP/host"', () => {
+      expect(normalizePrincipal('HTTP@myhost.example.com', 'win32')).toBe('HTTP/myhost.example.com')
+    })
+
+    it('leaves "HTTP/host" unchanged', () => {
+      expect(normalizePrincipal('HTTP/myhost.example.com', 'win32')).toBe('HTTP/myhost.example.com')
+    })
+
+    it('leaves "HTTP/host@REALM" unchanged (full principal with realm)', () => {
+      expect(normalizePrincipal('HTTP/myhost.example.com@EXAMPLE.COM', 'win32')).toBe('HTTP/myhost.example.com@EXAMPLE.COM')
+    })
+  })
+
+  describe('on Linux/macOS', () => {
+    it('converts "HTTP/host" to "HTTP@host"', () => {
+      expect(normalizePrincipal('HTTP/myhost.example.com', 'linux')).toBe('HTTP@myhost.example.com')
+    })
+
+    it('leaves "HTTP@host" unchanged', () => {
+      expect(normalizePrincipal('HTTP@myhost.example.com', 'linux')).toBe('HTTP@myhost.example.com')
+    })
+
+    it('leaves "HTTP/host@REALM" unchanged (full principal with realm)', () => {
+      expect(normalizePrincipal('HTTP/myhost.example.com@EXAMPLE.COM', 'linux')).toBe('HTTP/myhost.example.com@EXAMPLE.COM')
+    })
+
+    it('works the same for darwin', () => {
+      expect(normalizePrincipal('HTTP/myhost.example.com', 'darwin')).toBe('HTTP@myhost.example.com')
     })
   })
 })

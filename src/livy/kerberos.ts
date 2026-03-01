@@ -36,6 +36,42 @@ interface KerberosModule {
   GSS_C_DELEG_FLAG: number
 }
 
+/**
+ * Normalise a Kerberos service principal for the current platform.
+ *
+ * The two common SPN formats are:
+ *   - GSSAPI  (Linux/macOS): `service@host`   (host-based service name)
+ *   - SSPI    (Windows):     `service/host`   (Windows SPN format)
+ *
+ * The `kerberos` npm package passes the string **directly** to the
+ * platform's native API without converting between formats.  If the
+ * caller provides `HTTP@host` on Windows, SSPI cannot resolve the
+ * service ticket and silently falls back to NTLM — which SPNEGO-only
+ * gateways (e.g. Knox) will reject.
+ *
+ * This function converts between the two formats so the user's
+ * configured principal (or the default `HTTP@host`) works on every OS.
+ *
+ * If the principal already contains both `/` and `@` (e.g. the full
+ * Kerberos form `service/host@REALM`), it is left untouched.
+ */
+export function normalizePrincipal(principal: string, platform: string = process.platform): string {
+  if (platform === 'win32') {
+    // Windows SSPI expects "service/host" — convert "service@host" → "service/host"
+    // but leave "service/host@REALM" untouched.
+    if (!principal.includes('/')) {
+      return principal.replace('@', '/')
+    }
+  } else {
+    // GSSAPI expects "service@host" — convert "service/host" → "service@host"
+    // but leave "service/host@REALM" untouched.
+    if (!principal.includes('@')) {
+      return principal.replace('/', '@')
+    }
+  }
+  return principal
+}
+
 /** Cached module reference so the dynamic require runs only once. */
 let kerberosModule: KerberosModule | undefined
 
@@ -129,6 +165,13 @@ export async function generateSpnegoToken(
   log: LogFn = noopLog
 ): Promise<string> {
   log(`[kerberos] generateSpnegoToken called — principal="${servicePrincipal}", delegate=${delegate}, platform=${process.platform}`)
+
+  // Normalise the SPN for the current platform ("@" ↔ "/" conversion).
+  const normalised = normalizePrincipal(servicePrincipal)
+  if (normalised !== servicePrincipal) {
+    log(`[kerberos] Normalised principal for ${process.platform}: "${servicePrincipal}" → "${normalised}"`)
+  }
+
   const krb = getKerberosModule(log)
 
   log(`[kerberos] Module constants: GSS_MECH_OID_SPNEGO=${krb.GSS_MECH_OID_SPNEGO}, GSS_C_DELEG_FLAG=${krb.GSS_C_DELEG_FLAG}`)
@@ -153,8 +196,8 @@ export async function generateSpnegoToken(
       flags: delegate ? krb.GSS_C_DELEG_FLAG : 0,
     }
 
-    log(`[kerberos] Calling initializeClient("${servicePrincipal}", ${JSON.stringify(initOptions)})`)
-    client = await krb.initializeClient(servicePrincipal, initOptions)
+    log(`[kerberos] Calling initializeClient("${normalised}", ${JSON.stringify(initOptions)})`)
+    client = await krb.initializeClient(normalised, initOptions)
     log(`[kerberos] initializeClient succeeded`)
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -172,7 +215,7 @@ export async function generateSpnegoToken(
     }
     if (/principal|service/i.test(msg)) {
       throw new Error(
-        `Kerberos authentication failed for principal "${servicePrincipal}". `
+        `Kerberos authentication failed for principal "${normalised}". `
         + `Verify the livy.kerberosServicePrincipal setting.\nDetail: ${msg}`
       )
     }
@@ -223,12 +266,12 @@ export async function generateSpnegoToken(
       + 'Troubleshooting steps:\n'
       + '  1. Run "klist" in a terminal to verify you have a valid Kerberos ticket.\n'
       + '  2. If no ticket exists, run "kinit" or check your domain login.\n'
-      + `  3. Verify the service principal "${servicePrincipal}" is correct.\n`
+      + `  3. Verify the service principal "${normalised}" is correct.\n`
       + '  4. Ensure the KDC (domain controller) is reachable from this machine.'
     )
   }
 
-  log(`[kerberos] SPNEGO token ready for principal "${servicePrincipal}"`)
+  log(`[kerberos] SPNEGO token ready for principal "${normalised}"`)
   return token
 }
 
