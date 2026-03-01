@@ -58,6 +58,17 @@ describe('generateSpnegoToken', () => {
       expect(opts.flags & GSS_C_DELEG_FLAG).toBe(0)
     })
 
+    it('always passes flags as an explicit numeric value (required for Windows SSPI)', async () => {
+      // On Windows/SSPI the kerberos native addon defaults to
+      // GSS_C_MUTUAL_FLAG | GSS_C_SEQUENCE_FLAG when flags is omitted,
+      // which inflates the SPNEGO token beyond Knox's 50-byte buffer limit.
+      // flags must always be a number to override the native default.
+      await generateSpnegoToken('HTTP@host', false)
+      const opts = mockInitializeClient.mock.calls[0][1] as { flags: unknown }
+      expect(typeof opts.flags).toBe('number')
+      expect(opts.flags).toBe(0)
+    })
+
     it('passes GSS_MECH_OID_SPNEGO (numeric) as the mechOID', async () => {
       await generateSpnegoToken('HTTP@host', false)
       expect(mockInitializeClient).toHaveBeenCalledWith(

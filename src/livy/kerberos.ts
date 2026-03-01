@@ -114,18 +114,21 @@ export async function generateSpnegoToken(
   let client: KerberosClient
   try {
     // Knox (and many other SPNEGO gateways) use a fixed small internal buffer
-    // for the initial SPNEGO token. Adding extra GSS flags (MUTUAL, SEQUENCE,
-    // DELEG) inflates the token and causes Knox to throw:
+    // for the initial SPNEGO token. Adding extra GSS flags (MUTUAL, SEQUENCE)
+    // inflates the token and causes Knox to throw:
     //   "newLimit > capacity: (84 > 50)"
-    // To produce the smallest valid token, omit the `flags` option entirely so
-    // the kerberos library uses its minimal defaults.  Delegation is handled by
-    // the server side; we only add the DELEG flag when the user explicitly
-    // opts in AND we have confirmed that the server supports it.
-    const initOptions: { mechOID: number; flags?: number } = {
+    //
+    // IMPORTANT: `flags` must always be set explicitly to a numeric value.
+    // On Windows/SSPI, the kerberos native addon defaults to
+    //   GSS_C_MUTUAL_FLAG | GSS_C_SEQUENCE_FLAG
+    // when the `flags` property is omitted (non-numeric), which triggers the
+    // Knox buffer overflow. On Linux/GSSAPI the omission happens to work
+    // because the GSSAPI library picks minimal defaults, but we must not
+    // rely on that. Setting `flags: 0` produces the smallest valid token on
+    // both platforms.
+    const initOptions: { mechOID: number; flags: number } = {
       mechOID: krb.GSS_MECH_OID_SPNEGO,
-    }
-    if (delegate) {
-      initOptions.flags = krb.GSS_C_DELEG_FLAG
+      flags: delegate ? krb.GSS_C_DELEG_FLAG : 0,
     }
 
     client = await krb.initializeClient(servicePrincipal, initOptions)
