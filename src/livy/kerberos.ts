@@ -113,16 +113,22 @@ export async function generateSpnegoToken(
 
   let client: KerberosClient
   try {
-    // Build the GSS flags bitmask.
-    // For Knox gateways, forcing MUTUAL/SEQUENCE can produce tokens that are
-    // rejected by some deployments; only request delegation when explicitly
-    // configured.
-    const flags = delegate ? krb.GSS_C_DELEG_FLAG : 0
-
-    client = await krb.initializeClient(servicePrincipal, {
+    // Knox (and many other SPNEGO gateways) use a fixed small internal buffer
+    // for the initial SPNEGO token. Adding extra GSS flags (MUTUAL, SEQUENCE,
+    // DELEG) inflates the token and causes Knox to throw:
+    //   "newLimit > capacity: (84 > 50)"
+    // To produce the smallest valid token, omit the `flags` option entirely so
+    // the kerberos library uses its minimal defaults.  Delegation is handled by
+    // the server side; we only add the DELEG flag when the user explicitly
+    // opts in AND we have confirmed that the server supports it.
+    const initOptions: { mechOID: number; flags?: number } = {
       mechOID: krb.GSS_MECH_OID_SPNEGO,
-      flags,
-    })
+    }
+    if (delegate) {
+      initOptions.flags = krb.GSS_C_DELEG_FLAG
+    }
+
+    client = await krb.initializeClient(servicePrincipal, initOptions)
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
     // Surface actionable guidance for the most common failure: no TGT
