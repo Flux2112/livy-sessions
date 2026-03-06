@@ -100,6 +100,12 @@
         "icon": "$(cloud-upload)"
       },
       {
+        "command": "livy.uploadStructuredDependencies",
+        "title": "Upload Selection (Preserve Structure)",
+        "category": "Livy",
+        "icon": "$(file-submodule)"
+      },
+      {
         "command": "livy.removeDependency",
         "title": "Remove Dependency",
         "category": "Livy",
@@ -117,7 +123,7 @@
         {
           "id": "livyExplorer",
           "title": "Livy Sessions",
-          "icon": "media/livy.svg"
+          "icon": "media/livy-white.svg"
         }
       ]
     },
@@ -147,6 +153,10 @@
           "command": "livy.uploadDirectory",
           "when": "explorerResourceIsFolder",
           "group": "livy@1"
+        },
+        {
+          "command": "livy.uploadStructuredDependencies",
+          "group": "livy@2"
         }
       ],
       "view/title": [

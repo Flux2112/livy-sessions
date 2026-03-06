@@ -22,7 +22,8 @@ export async function zipDirectory(dirPath: string): Promise<string> {
     archive.on('error', reject)
 
     archive.pipe(output)
-    archive.directory(dirPath, false)
+    // Preserve the source folder as the archive root (e.g. docs/...).
+    archive.directory(dirPath, dirName)
     void archive.finalize()
   })
 }

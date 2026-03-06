@@ -13,6 +13,21 @@ interface DependencyFieldOption {
   readonly field: DependencyField
 }
 
+interface UploadTarget {
+  readonly localPath: string
+  readonly remotePath: string
+}
+
+interface SelectionEntry {
+  readonly selectedPath: string
+  readonly isDirectory: boolean
+}
+
+interface StructuredUploadResult {
+  readonly field: DependencyField
+  readonly uri: string
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
@@ -27,11 +42,161 @@ function inferDependencyField(filename: string): DependencyField {
 }
 
 /**
+ * Infer dependency field for automatic routing in batch uploads.
+ */
+function inferDependencyFieldForBatch(filename: string): DependencyField {
+  const lower = filename.toLowerCase()
+  if (lower.endsWith('.jar')) return 'jars'
+  if (lower.endsWith('.py') || lower.endsWith('.egg') || lower.endsWith('.zip')) return 'pyFiles'
+  return 'files'
+}
+
+/**
  * Returns true if the directory tree contains at least one .py file.
  */
 async function containsPyFile(dirPath: string): Promise<boolean> {
   const entries = await fs.promises.readdir(dirPath, { recursive: true })
   return entries.some((e) => e.toLowerCase().endsWith('.py'))
+}
+
+/**
+ * Recursively collect files from a directory while skipping symlinks.
+ */
+async function collectFilesRecursively(dirPath: string): Promise<string[]> {
+  const files: string[] = []
+  const entries = await fs.promises.readdir(dirPath, { withFileTypes: true })
+
+  for (const entry of entries) {
+    const fullPath = path.join(dirPath, entry.name)
+    if (entry.isSymbolicLink()) {
+      continue
+    }
+    if (entry.isDirectory()) {
+      files.push(...await collectFilesRecursively(fullPath))
+      continue
+    }
+    if (entry.isFile()) {
+      files.push(fullPath)
+    }
+  }
+
+  return files
+}
+
+function toPosixPath(value: string): string {
+  return value.split(path.sep).join('/')
+}
+
+function commonAncestor(paths: readonly string[]): string {
+  if (paths.length === 0) {
+    return path.sep
+  }
+
+  const splitParts = paths.map((p) => path.resolve(p).split(path.sep).filter(Boolean))
+  const first = splitParts[0]
+  let sharedLength = first.length
+
+  for (const parts of splitParts.slice(1)) {
+    let i = 0
+    while (i < sharedLength && i < parts.length && parts[i] === first[i]) {
+      i += 1
+    }
+    sharedLength = i
+    if (sharedLength === 0) {
+      break
+    }
+  }
+
+  if (path.isAbsolute(paths[0])) {
+    if (sharedLength === 0) {
+      return path.parse(paths[0]).root
+    }
+    return path.join(path.parse(paths[0]).root, ...first.slice(0, sharedLength))
+  }
+
+  return sharedLength === 0 ? '.' : path.join(...first.slice(0, sharedLength))
+}
+
+async function buildUploadTargets(selectionUris: readonly vscode.Uri[]): Promise<UploadTarget[]> {
+  const entries: SelectionEntry[] = []
+  const selectedPaths = new Set<string>()
+
+  for (const uri of selectionUris) {
+    const selectedPath = path.resolve(uri.fsPath)
+    if (selectedPaths.has(selectedPath)) {
+      continue
+    }
+    selectedPaths.add(selectedPath)
+
+    const stat = await fs.promises.stat(selectedPath)
+    entries.push({
+      selectedPath,
+      isDirectory: stat.isDirectory(),
+    })
+  }
+
+  const selectedRoots = entries.map((entry) => entry.selectedPath)
+  const baseRoot = commonAncestor(selectedRoots)
+
+  const targets: UploadTarget[] = []
+  const seenLocal = new Set<string>()
+
+  for (const entry of entries) {
+    if (!entry.isDirectory) {
+      if (seenLocal.has(entry.selectedPath)) {
+        continue
+      }
+      seenLocal.add(entry.selectedPath)
+
+      const rel = toPosixPath(path.relative(baseRoot, entry.selectedPath))
+      targets.push({
+        localPath: entry.selectedPath,
+        remotePath: rel,
+      })
+      continue
+    }
+
+    const files = await collectFilesRecursively(entry.selectedPath)
+    for (const filePath of files) {
+      const resolved = path.resolve(filePath)
+      if (seenLocal.has(resolved)) {
+        continue
+      }
+      seenLocal.add(resolved)
+
+      const rel = toPosixPath(path.relative(baseRoot, resolved))
+      targets.push({
+        localPath: resolved,
+        remotePath: rel,
+      })
+    }
+  }
+
+  return targets.sort((a, b) => a.remotePath.localeCompare(b.remotePath))
+}
+
+async function resolveStructuredSelection(
+  resourceUri?: vscode.Uri,
+  resourceUris?: readonly vscode.Uri[]
+): Promise<readonly vscode.Uri[] | null> {
+  if (resourceUris && resourceUris.length > 0) {
+    return resourceUris
+  }
+
+  if (resourceUri) {
+    return [resourceUri]
+  }
+
+  const uris = await vscode.window.showOpenDialog({
+    canSelectFiles: true,
+    canSelectFolders: true,
+    canSelectMany: true,
+    openLabel: 'Upload',
+  })
+  if (!uris || uris.length === 0) {
+    return null
+  }
+  return uris
 }
 
 /**
@@ -282,6 +447,107 @@ async function uploadDirectory(
 }
 
 /**
+ * `livy.uploadStructuredDependencies`
+ * Upload arbitrary file/folder selections as individual files while preserving
+ * each selected item's top-level structure in HDFS.
+ */
+async function uploadStructuredDependencies(
+  hdfsClient: HdfsClient,
+  treeProvider: SessionTreeProvider,
+  resourceUri?: vscode.Uri,
+  resourceUris?: readonly vscode.Uri[]
+): Promise<void> {
+  if (!requireHdfsClient(hdfsClient)) return
+
+  const selected = await resolveStructuredSelection(resourceUri, resourceUris)
+  if (!selected || selected.length === 0) return
+
+  let targets: UploadTarget[]
+  try {
+    targets = await buildUploadTargets(selected)
+  } catch (err) {
+    void vscode.window.showErrorMessage(`Failed to read selection: ${String(err)}`)
+    return
+  }
+
+  if (targets.length === 0) {
+    void vscode.window.showWarningMessage('No files found to upload.')
+    return
+  }
+
+  const config = vscode.workspace.getConfiguration('livy')
+  const username = config.get<string>('username', '')
+
+  const successful: StructuredUploadResult[] = []
+  const failed: Array<{ readonly target: UploadTarget; readonly error: string }> = []
+  let cancelled = false
+
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: `Livy: Uploading ${targets.length} file(s)…`,
+      cancellable: true,
+    },
+    async (progress, token) => {
+      const ac = new AbortController()
+      token.onCancellationRequested(() => ac.abort())
+
+      for (let i = 0; i < targets.length; i++) {
+        const target = targets[i]
+        progress.report({ message: `${i + 1}/${targets.length}: ${target.remotePath}` })
+
+        if (token.isCancellationRequested) {
+          cancelled = true
+          break
+        }
+
+        try {
+          const uri = await hdfsClient.upload(target.localPath, target.remotePath, username, ac.signal)
+          successful.push({
+            field: inferDependencyFieldForBatch(target.localPath),
+            uri,
+          })
+        } catch (err) {
+          if (token.isCancellationRequested || String(err).toLowerCase().includes('abort')) {
+            cancelled = true
+            break
+          }
+
+          failed.push({ target, error: String(err) })
+        }
+      }
+    }
+  )
+
+  for (const item of successful) {
+    await appendToSettingArray(item.field, item.uri)
+  }
+
+  if (successful.length > 0) {
+    treeProvider.refresh()
+  }
+
+  const summary = `Uploaded ${successful.length}/${targets.length} file(s)`
+  if (failed.length > 0) {
+    void vscode.window.showWarningMessage(`${summary}. ${failed.length} failed.`)
+  }
+
+  if (cancelled) {
+    void vscode.window.showInformationMessage(`${summary}. Upload cancelled.`)
+    return
+  }
+
+  const choice = await vscode.window.showInformationMessage(
+    `${summary}.`,
+    'Restart Session',
+    'Dismiss'
+  )
+  if (choice === 'Restart Session') {
+    await vscode.commands.executeCommand('livy.restartSession')
+  }
+}
+
+/**
  * `livy.removeDependency`
  * Removes a URI from the setting array and optionally deletes from HDFS.
  */
@@ -360,6 +626,15 @@ export function registerDependencyCommands(
         const client = getHdfsClient()
         if (!requireHdfsClient(client)) return
         await uploadDirectory(folderUri, client, treeProvider)
+      }
+    ),
+
+    vscode.commands.registerCommand(
+      'livy.uploadStructuredDependencies',
+      async (resourceUri?: vscode.Uri, resourceUris?: readonly vscode.Uri[]) => {
+        const client = getHdfsClient()
+        if (!requireHdfsClient(client)) return
+        await uploadStructuredDependencies(client, treeProvider, resourceUri, resourceUris)
       }
     ),
 

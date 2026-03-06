@@ -76,6 +76,11 @@ const vscode = {
     Left: 1,
     Right: 2,
   },
+  ConfigurationTarget: {
+    Global: 1,
+    Workspace: 2,
+    WorkspaceFolder: 3,
+  },
   ThemeIcon: jest.fn().mockImplementation((id: string) => ({ id })),
   ThemeColor: jest.fn().mockImplementation((id: string) => ({ id })),
   MarkdownString: jest.fn().mockImplementation((value: string) => ({ value })),
