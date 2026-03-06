@@ -328,70 +328,76 @@ export class SessionManager implements vscode.Disposable {
         cancellable: true,
       },
       async (progress, token) => {
-        const combinedToken = cancellationToken
+        const combined = cancellationToken
           ? combineCancellation(token, cancellationToken)
-          : token
+          : null
+        const effectiveToken = combined?.token ?? token
 
         const abortController = new AbortController()
-        combinedToken.onCancellationRequested(() => abortController.abort())
+        const abortDisposable = effectiveToken.onCancellationRequested(() => abortController.abort())
 
-        let statement: LivyStatement
         try {
-          const timestamp = formatTimestamp(new Date())
-          this.log(`[${timestamp}] Submitting statement (${kind})…`)
-          progress.report({ message: 'submitting…' })
-
-          statement = await this.client.createStatement(
-            sessionId,
-            { code, kind },
-            abortController.signal
-          )
-        } catch (err) {
-          this.handleError('Failed to submit code', err)
-          return null
-        }
-
-        const statId = statement.id
-        this.log(`[${formatTimestamp(new Date())}] Statement #${statId} submitted (${kind})`)
-
-        // Poll until terminal state
-        for (;;) {
-          if (combinedToken.isCancellationRequested) {
-            try {
-              await this.client.cancelStatement(sessionId, statId)
-              this.log(`Statement #${statId} cancelled.`)
-            } catch {
-              // best-effort cancel
-            }
-            return null
-          }
-
-          await delay(pollIntervalMs, abortController.signal)
-          if (combinedToken.isCancellationRequested) return null
-
-          let current: LivyStatement
+          let statement: LivyStatement
           try {
-            current = await this.client.getStatement(sessionId, statId, abortController.signal)
+            const timestamp = formatTimestamp(new Date())
+            this.log(`[${timestamp}] Submitting statement (${kind})…`)
+            progress.report({ message: 'submitting…' })
+
+            statement = await this.client.createStatement(
+              sessionId,
+              { code, kind },
+              abortController.signal
+            )
           } catch (err) {
-            this.handleError('Error polling statement', err)
+            this.handleError('Failed to submit code', err)
             return null
           }
 
-          this.log(`[${formatTimestamp(new Date())}] State: ${current.state}…`)
-          progress.report({ message: current.state })
+          const statId = statement.id
+          this.log(`[${formatTimestamp(new Date())}] Statement #${statId} submitted (${kind})`)
 
-          if (current.state === 'available' || current.state === 'error' || current.state === 'cancelled') {
-            this.printStatementResult(current)
-            // Refresh active session state
-            try {
-              this._activeSession = await this.client.getSession(sessionId)
-              this._onSessionChanged.fire({ session: this._activeSession })
-            } catch {
-              // best-effort
+          // Poll until terminal state
+          for (;;) {
+            if (effectiveToken.isCancellationRequested) {
+              try {
+                await this.client.cancelStatement(sessionId, statId)
+                this.log(`Statement #${statId} cancelled.`)
+              } catch {
+                // best-effort cancel
+              }
+              return null
             }
-            this._onStatementComplete.fire({ sessionId, statement: current })
-            return current
+
+            await delay(pollIntervalMs, abortController.signal)
+            if (effectiveToken.isCancellationRequested) return null
+
+            let current: LivyStatement
+            try {
+              current = await this.client.getStatement(sessionId, statId, abortController.signal)
+            } catch (err) {
+              this.handleError('Error polling statement', err)
+              return null
+            }
+
+            this.log(`[${formatTimestamp(new Date())}] State: ${current.state}…`)
+            progress.report({ message: current.state })
+
+            if (current.state === 'available' || current.state === 'error' || current.state === 'cancelled') {
+              this.printStatementResult(current)
+              // Refresh active session state
+              try {
+                this._activeSession = await this.client.getSession(sessionId)
+                this._onSessionChanged.fire({ session: this._activeSession })
+              } catch {
+                // best-effort
+              }
+              this._onStatementComplete.fire({ sessionId, statement: current })
+              return current
+            }
           }
+        } finally {
+          abortDisposable.dispose()
+          combined?.dispose()
         }
       }
     )
@@ -533,12 +539,24 @@ export class SessionManager implements vscode.Disposable {
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(resolve, ms)
-    signal?.addEventListener('abort', () => {
+  return new Promise<void>((resolve) => {
+    // Already aborted – resolve immediately so callers can check cancellation
+    if (signal?.aborted) {
+      resolve()
+      return
+    }
+
+    const onAbort = () => {
       clearTimeout(timer)
-      reject(new Error('Aborted'))
-    })
+      resolve() // Resolve, not reject – callers check isCancellationRequested
+    }
+
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+
+    signal?.addEventListener('abort', onAbort, { once: true })
   })
 }
 
@@ -550,12 +568,24 @@ function formatTimestamp(date: Date): string {
   )
 }
 
+interface CombinedCancellation {
+  readonly token: vscode.CancellationToken
+  dispose(): void
+}
+
 function combineCancellation(
   a: vscode.CancellationToken,
   b: vscode.CancellationToken
-): vscode.CancellationToken {
+): CombinedCancellation {
   const cts = new vscode.CancellationTokenSource()
-  a.onCancellationRequested(() => cts.cancel())
-  b.onCancellationRequested(() => cts.cancel())
-  return cts.token
+  const d1 = a.onCancellationRequested(() => cts.cancel())
+  const d2 = b.onCancellationRequested(() => cts.cancel())
+  return {
+    token: cts.token,
+    dispose() {
+      d1.dispose()
+      d2.dispose()
+      cts.dispose()
+    },
+  }
 }

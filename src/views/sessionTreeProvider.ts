@@ -228,8 +228,9 @@ export class SessionTreeProvider
   /** Sessions displayed in the tree; updated on refresh. */
   private sessions: LivySession[] = []
 
-  /** Statements cache per session id. */
+  /** Statements cache per session id — capped to prevent unbounded growth. */
   private readonly statementsCache = new Map<number, LivyStatement[]>()
+  private static readonly MAX_CACHED_STATEMENTS = 50
 
   private readonly manager: SessionManager
   private readonly depStore: DependencyStore
@@ -244,6 +245,10 @@ export class SessionTreeProvider
   }
 
   handleSessionChanged(_event: SessionChangedEvent): void {
+    // Clear cache for sessions that no longer exist
+    if (_event.session === null) {
+      this.statementsCache.clear()
+    }
     this.refresh()
   }
 
@@ -255,6 +260,10 @@ export class SessionTreeProvider
       cached[idx] = event.statement
     } else {
       cached.unshift(event.statement)
+      // Evict oldest entries beyond the cap
+      if (cached.length > SessionTreeProvider.MAX_CACHED_STATEMENTS) {
+        cached.length = SessionTreeProvider.MAX_CACHED_STATEMENTS
+      }
     }
     this.statementsCache.set(event.sessionId, cached)
     this.refresh()

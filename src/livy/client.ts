@@ -58,6 +58,12 @@ async function request<T>(opts: RequestOptions): Promise<T> {
   }
 
   return new Promise<T>((resolve, reject) => {
+    // Guard: signal already aborted before we start
+    if (opts.signal?.aborted) {
+      reject(new Error('Request aborted'))
+      return
+    }
+
     const url = new URL(opts.url)
     const isHttps = url.protocol === 'https:'
     const bodyJson = opts.body !== undefined ? JSON.stringify(opts.body) : undefined
@@ -85,11 +91,20 @@ async function request<T>(opts: RequestOptions): Promise<T> {
 
     const transport = isHttps ? https : http
 
+    // Abort handler — cleaned up when the request completes
+    const onAbort = () => {
+      log(`[http]   Request aborted`)
+      req.destroy()
+      reject(new Error('Request aborted'))
+    }
+
     const req = transport.request(reqOptions, (res) => {
       const chunks: Buffer[] = []
 
       res.on('data', (chunk: Buffer) => chunks.push(chunk))
       res.on('end', () => {
+        opts.signal?.removeEventListener('abort', onAbort)
+
         const rawBody = Buffer.concat(chunks).toString('utf8')
         const statusCode = res.statusCode ?? 0
 
@@ -135,17 +150,14 @@ async function request<T>(opts: RequestOptions): Promise<T> {
     })
 
     req.on('error', (err) => {
+      opts.signal?.removeEventListener('abort', onAbort)
       log(`[http]   Request error: ${err.message}`)
       reject(err)
     })
 
-    // Handle AbortSignal
+    // Handle AbortSignal — use { once: true } as a safety net
     if (opts.signal) {
-      opts.signal.addEventListener('abort', () => {
-        log(`[http]   Request aborted`)
-        req.destroy()
-        reject(new Error('Request aborted'))
-      })
+      opts.signal.addEventListener('abort', onAbort, { once: true })
     }
 
     if (bodyJson !== undefined) {
