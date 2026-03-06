@@ -39,7 +39,8 @@ function createConfigMock(state: ConfigState): {
       return value as T
     },
     update: async (key: string, value: unknown): Promise<void> => {
-      ;(state as unknown as Record<string, unknown>)[key] = value
+      const mutableState = state as unknown as Record<string, unknown>
+      mutableState[key] = value
     },
   }
 }
@@ -58,7 +59,8 @@ describe('registerDependencyCommands - structured upload', () => {
       archives: [],
     }
     const config = createConfigMock(state)
-    ;(vscode.workspace.getConfiguration as jest.Mock).mockReturnValue(config)
+    const getConfigurationMock = vscode.workspace.getConfiguration as jest.Mock
+    getConfigurationMock.mockReturnValue(config)
 
     const statMock = jest.spyOn(fs.promises, 'stat').mockImplementation(async (p) => {
       const full = String(p)
@@ -68,7 +70,7 @@ describe('registerDependencyCommands - structured upload', () => {
       } as fs.Stats
     })
 
-    const readdirMock = jest.spyOn(fs.promises, 'readdir').mockImplementation((async (p: fs.PathLike, opts: unknown) => {
+    const readdirImpl = (async (p: fs.PathLike, opts: unknown) => {
       const full = String(p)
       const withTypes = typeof opts === 'object' && opts !== null && 'withFileTypes' in opts && opts.withFileTypes
       if (!withTypes) {
@@ -81,7 +83,9 @@ describe('registerDependencyCommands - structured upload', () => {
         return [makeDirent('x.txt', 'file')] as unknown as fs.Dirent[]
       }
       return [] as unknown as fs.Dirent[]
-    }) as any)
+    }) as unknown as typeof fs.promises.readdir
+
+    const readdirMock = jest.spyOn(fs.promises, 'readdir').mockImplementation(readdirImpl)
 
     const upload = jest.fn(async (_local: string, remote: string) => `hdfs:///user/alice/livy-deps/${remote}`)
     const hdfsClient = { upload, delete: jest.fn() }
@@ -135,7 +139,8 @@ describe('registerDependencyCommands - structured upload', () => {
       archives: [],
     }
     const config = createConfigMock(state)
-    ;(vscode.workspace.getConfiguration as jest.Mock).mockReturnValue(config)
+    const getConfigurationMock = vscode.workspace.getConfiguration as jest.Mock
+    getConfigurationMock.mockReturnValue(config)
 
     const statMock = jest.spyOn(fs.promises, 'stat').mockImplementation(async (p) => {
       const full = String(p)
@@ -145,7 +150,7 @@ describe('registerDependencyCommands - structured upload', () => {
       } as fs.Stats
     })
 
-    const readdirMock = jest.spyOn(fs.promises, 'readdir').mockImplementation((async (p: fs.PathLike, opts: unknown) => {
+    const readdirImpl = (async (p: fs.PathLike, opts: unknown) => {
       const full = String(p)
       const withTypes = typeof opts === 'object' && opts !== null && 'withFileTypes' in opts && opts.withFileTypes
       if (!withTypes) {
@@ -158,7 +163,9 @@ describe('registerDependencyCommands - structured upload', () => {
         return [makeDirent('x.txt', 'file')] as unknown as fs.Dirent[]
       }
       return [] as unknown as fs.Dirent[]
-    }) as any)
+    }) as unknown as typeof fs.promises.readdir
+
+    const readdirMock = jest.spyOn(fs.promises, 'readdir').mockImplementation(readdirImpl)
 
     const upload = jest.fn(async (_local: string, remote: string) => `hdfs:///user/alice/livy-deps/${remote}`)
     const hdfsClient = { upload, delete: jest.fn() }
