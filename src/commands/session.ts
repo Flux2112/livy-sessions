@@ -1,6 +1,6 @@
 import * as vscode from 'vscode'
 import type { SessionManager } from '../livy/sessionManager'
-import type { SessionKind } from '../livy/types'
+import type { LivySession, SessionKind } from '../livy/types'
 import type { SessionTreeItem } from '../views/sessionTreeProvider'
 import type { SessionTreeProvider } from '../views/sessionTreeProvider'
 
@@ -31,6 +31,9 @@ export function registerSessionCommands(
       provider.refresh()
     }),
     vscode.commands.registerCommand('livy.restartSession', () =>
+      cmdRestartSession(manager)
+    ),
+    vscode.commands.registerCommand('livy.refreshDependencyContext', () =>
       cmdRestartSession(manager)
     )
   )
@@ -114,21 +117,59 @@ function cmdShowSessionInfo(
 }
 
 async function cmdRestartSession(manager: SessionManager): Promise<void> {
-  const session = manager.activeSession
-  if (!session) {
+  const activeSession = manager.activeSession
+  if (!activeSession) {
     void vscode.window.showErrorMessage('No active Livy session to restart.')
     return
   }
 
-  const { kind, name } = session
+  const liveSession = await resolveLiveSessionForRestart(manager, activeSession)
+  const restartSource = liveSession ?? activeSession
+  const { kind, name } = restartSource
 
   const confirm = await vscode.window.showWarningMessage(
-    `Restart session #${session.id}? It will be killed and a new session will be created with all configured dependencies.`,
+    `Restart session #${restartSource.id}? It will be killed and a new session will be created with all configured dependencies.`,
     { modal: true },
     'Restart'
   )
   if (confirm !== 'Restart') return
 
-  await manager.killSession(session.id)
+  if (liveSession) {
+    await manager.killSession(liveSession.id)
+  } else {
+    // Avoid failing the refresh flow on stale local state; create a fresh session directly.
+    void vscode.window.showWarningMessage(
+      'Active session was not found on the server. Creating a fresh session with pending dependencies.'
+    )
+  }
+
   await manager.createSession({ kind, name: name ?? undefined })
+}
+
+async function resolveLiveSessionForRestart(
+  manager: SessionManager,
+  activeSession: LivySession
+): Promise<LivySession | null> {
+  const sessions = await manager.listSessions()
+  if (sessions.length === 0) {
+    return null
+  }
+
+  const exactMatch = sessions.find((session) => session.id === activeSession.id)
+  if (exactMatch) {
+    return exactMatch
+  }
+
+  const liveCandidates = sessions
+    .filter((session) => session.state !== 'dead' && session.state !== 'error' && session.state !== 'killed')
+    .sort((a, b) => b.id - a.id)
+
+  if (liveCandidates.length === 0) {
+    return null
+  }
+
+  const sameIdentity = liveCandidates.find(
+    (session) => session.kind === activeSession.kind && session.name === activeSession.name
+  )
+  return sameIdentity ?? liveCandidates[0]
 }

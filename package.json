@@ -116,6 +116,12 @@
         "title": "Restart Session",
         "category": "Livy",
         "icon": "$(debug-restart)"
+      },
+      {
+        "command": "livy.refreshDependencyContext",
+        "title": "Refresh Dependency Context",
+        "category": "Livy",
+        "icon": "$(cloud-upload)"
       }
     ],
     "viewsContainers": {
@@ -171,9 +177,14 @@
           "group": "navigation@2"
         },
         {
-          "command": "livy.killAllSessions",
+          "command": "livy.refreshDependencyContext",
           "when": "view == livySessions",
           "group": "navigation@3"
+        },
+        {
+          "command": "livy.killAllSessions",
+          "when": "view == livySessions",
+          "group": "navigation@4"
         }
       ],
       "view/item/context": [
@@ -198,7 +209,7 @@
           "group": "livy@4"
         },
         {
-          "command": "livy.restartSession",
+          "command": "livy.refreshDependencyContext",
           "when": "view == livySessions && viewItem == livyPendingDepsRoot",
           "group": "livy@1"
         },
