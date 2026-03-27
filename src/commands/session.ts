@@ -313,8 +313,9 @@ async function cmdRefreshSingleDependency(
 ): Promise<void> {
   const dep = managedDepStore.getAll().find((d) => d.hdfsUri === item.uri)
   if (!dep) {
+    const label = typeof item.label === 'string' ? item.label : item.label?.label ?? 'Unknown dependency'
     void vscode.window.showInformationMessage(
-      `"${item.label}" is a static dependency reference and cannot be re-uploaded from here.`
+      `"${label}" is a static dependency reference and cannot be re-uploaded from here.`
     )
     return
   }
