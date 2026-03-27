@@ -1,4 +1,5 @@
 import * as fs from 'node:fs'
+import * as path from 'node:path'
 import * as vscode from 'vscode'
 import { registerDependencyCommands } from '../commands/dependencies'
 
@@ -62,11 +63,15 @@ describe('registerDependencyCommands - structured upload', () => {
     const getConfigurationMock = vscode.workspace.getConfiguration as jest.Mock
     getConfigurationMock.mockReturnValue(config)
 
+    const repoDir = path.resolve('/repo')
+    const assetsDir = path.join(repoDir, 'assets')
+    const assetsDataDir = path.join(assetsDir, 'data')
+
     const statMock = jest.spyOn(fs.promises, 'stat').mockImplementation(async (p) => {
       const full = String(p)
       return {
         isFile: () => full.endsWith('.py'),
-        isDirectory: () => full === '/repo/assets',
+        isDirectory: () => full === assetsDir,
       } as fs.Stats
     })
 
@@ -76,10 +81,10 @@ describe('registerDependencyCommands - structured upload', () => {
       if (!withTypes) {
         return [] as unknown as fs.Dirent[]
       }
-      if (full === '/repo/assets') {
+      if (full === assetsDir) {
         return [makeDirent('data', 'dir')] as unknown as fs.Dirent[]
       }
-      if (full === '/repo/assets/data') {
+      if (full === assetsDataDir) {
         return [makeDirent('x.txt', 'file')] as unknown as fs.Dirent[]
       }
       return [] as unknown as fs.Dirent[]
@@ -109,9 +114,9 @@ describe('registerDependencyCommands - structured upload', () => {
     ) => Promise<void>
 
     await structuredHandler(undefined, [
-      { fsPath: '/repo/src/a.py' } as vscode.Uri,
-      { fsPath: '/repo/assets' } as vscode.Uri,
-      { fsPath: '/repo/src/utils/b.py' } as vscode.Uri,
+      { fsPath: path.join(repoDir, 'src', 'a.py') } as vscode.Uri,
+      { fsPath: assetsDir } as vscode.Uri,
+      { fsPath: path.join(repoDir, 'src', 'utils', 'b.py') } as vscode.Uri,
     ])
 
     expect(upload).toHaveBeenCalledTimes(3)
@@ -144,11 +149,15 @@ describe('registerDependencyCommands - structured upload', () => {
     const getConfigurationMock = vscode.workspace.getConfiguration as jest.Mock
     getConfigurationMock.mockReturnValue(config)
 
+    const repoDir = path.resolve('/repo')
+    const assetsDir = path.join(repoDir, 'assets')
+    const assetsDataDir = path.join(assetsDir, 'data')
+
     const statMock = jest.spyOn(fs.promises, 'stat').mockImplementation(async (p) => {
       const full = String(p)
       return {
         isFile: () => full.endsWith('.txt'),
-        isDirectory: () => full === '/repo/assets',
+        isDirectory: () => full === assetsDir,
       } as fs.Stats
     })
 
@@ -158,10 +167,10 @@ describe('registerDependencyCommands - structured upload', () => {
       if (!withTypes) {
         return [] as unknown as fs.Dirent[]
       }
-      if (full === '/repo/assets') {
+      if (full === assetsDir) {
         return [makeDirent('data', 'dir')] as unknown as fs.Dirent[]
       }
-      if (full === '/repo/assets/data') {
+      if (full === assetsDataDir) {
         return [makeDirent('x.txt', 'file')] as unknown as fs.Dirent[]
       }
       return [] as unknown as fs.Dirent[]
@@ -188,13 +197,13 @@ describe('registerDependencyCommands - structured upload', () => {
     ) => Promise<void>
 
     await structuredHandler(undefined, [
-      { fsPath: '/repo/assets' } as vscode.Uri,
-      { fsPath: '/repo/assets/data/x.txt' } as vscode.Uri,
+      { fsPath: assetsDir } as vscode.Uri,
+      { fsPath: path.join(assetsDataDir, 'x.txt') } as vscode.Uri,
     ])
 
     expect(upload).toHaveBeenCalledTimes(1)
     expect(upload).toHaveBeenCalledWith(
-      '/repo/assets/data/x.txt',
+      path.join(assetsDataDir, 'x.txt'),
       'data/x.txt',
       'alice',
       expect.anything()

@@ -95,7 +95,12 @@ function commonAncestor(paths: readonly string[]): string {
     return path.sep
   }
 
-  const splitParts = paths.map((p) => path.resolve(p).split(path.sep).filter(Boolean))
+  const resolved = paths.map((p) => path.resolve(p))
+  const root = path.parse(resolved[0]).root
+  // Strip the root prefix before splitting so that on Windows the drive letter
+  // (e.g. 'C:') is not included as a path segment.  Without this,
+  // path.join(root, 'C:', 'repo') produces 'C:\C:\repo' instead of 'C:\repo'.
+  const splitParts = resolved.map((p) => p.slice(root.length).split(path.sep).filter(Boolean))
   const first = splitParts[0]
   let sharedLength = first.length
 
@@ -112,9 +117,9 @@ function commonAncestor(paths: readonly string[]): string {
 
   if (path.isAbsolute(paths[0])) {
     if (sharedLength === 0) {
-      return path.parse(paths[0]).root
+      return root
     }
-    return path.join(path.parse(paths[0]).root, ...first.slice(0, sharedLength))
+    return path.join(root, ...first.slice(0, sharedLength))
   }
 
   return sharedLength === 0 ? '.' : path.join(...first.slice(0, sharedLength))
