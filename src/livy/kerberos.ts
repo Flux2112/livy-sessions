@@ -85,7 +85,6 @@ let kerberosSource: 'local' | 'global' | undefined
  */
 function tryRequireFromGlobalNpm(log: LogFn): KerberosModule | undefined {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { execSync } = require('node:child_process') as typeof import('child_process')
     const globalRoot = execSync('npm root -g', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
     if (!globalRoot) {
@@ -93,7 +92,6 @@ function tryRequireFromGlobalNpm(log: LogFn): KerberosModule | undefined {
       return undefined
     }
     log(`[kerberos] Trying global npm root: ${globalRoot}`)
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const mod = require(`${globalRoot}/kerberos`) as KerberosModule
     log(`[kerberos] Loaded from global npm root`)
     return mod
@@ -121,7 +119,6 @@ function getKerberosModule(log: LogFn): KerberosModule {
   try {
     log('[kerberos] Attempting local require("kerberos")…')
     // Dynamic require so the extension still loads when the package is absent.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     kerberosModule = require('kerberos') as KerberosModule
     kerberosSource = 'local'
     log('[kerberos] Loaded from local node_modules')
@@ -210,45 +207,37 @@ export async function generateSpnegoToken(
       throw new Error(
         'Kerberos ticket not found or expired. '
         + 'Run "kinit" to obtain a ticket (Linux/macOS) or verify your domain login (Windows).\n'
-        + `Detail: ${msg}`
-      )
+          + `Detail: ${msg}`,
+          { cause: err }
+        )
+      }
+      if (/principal|service/i.test(msg)) {
+        throw new Error(
+          `Kerberos authentication failed for principal "${normalised}". `
+          + `Verify the livy.kerberosServicePrincipal setting.\nDetail: ${msg}`,
+          { cause: err }
+        )
+      }
+      throw new Error(`Kerberos initializeClient failed: ${msg}`, { cause: err })
     }
-    if (/principal|service/i.test(msg)) {
+
+    log(`[kerberos] Calling client.step("") to generate SPNEGO token…`)
+    const token = await client.step('')
+    if (!token) {
+      log(`[kerberos] client.step("") returned empty/null token`)
       throw new Error(
-        `Kerberos authentication failed for principal "${normalised}". `
-        + `Verify the livy.kerberosServicePrincipal setting.\nDetail: ${msg}`
-      )
-    }
-    throw new Error(`Kerberos initializeClient failed: ${msg}`)
-  }
+        'Kerberos SPNEGO token generation returned an empty result. '
+        + 'Ensure you have a valid Kerberos ticket (run "kinit" on Linux/macOS '
+          + 'or verify your domain credentials on Windows).'
+        )
+      }
 
-  log(`[kerberos] Calling client.step("") to generate SPNEGO token…`)
-  const token = await client.step('')
-  if (!token) {
-    log(`[kerberos] client.step("") returned empty/null token`)
-    throw new Error(
-      'Kerberos SPNEGO token generation returned an empty result. '
-      + 'Ensure you have a valid Kerberos ticket (run "kinit" on Linux/macOS '
-      + 'or verify your domain credentials on Windows).'
-    )
-  }
+    // Log token diagnostics (safe — we only log length and prefix, never the full token)
+    const tokenBytes = Buffer.from(token, 'base64')
+    const firstByte = tokenBytes.length > 0 ? tokenBytes[0].toString(16).padStart(2, '0') : '??'
+    log(`[kerberos] Token generated — base64Length=${token.length}, byteLength=${tokenBytes.length}, firstByte=0x${firstByte}`)
 
-  // Log token diagnostics (safe — we only log length and prefix, never the full token)
-  const tokenBytes = Buffer.from(token, 'base64')
-  const firstByte = tokenBytes.length > 0 ? tokenBytes[0].toString(16).padStart(2, '0') : '??'
-  log(`[kerberos] Token generated — base64Length=${token.length}, byteLength=${tokenBytes.length}, firstByte=0x${firstByte}`)
-
-  // Identify token type from first byte for diagnostics:
-  //   0x60 = ASN.1 Application[0] = SPNEGO/Kerberos (correct)
-  //   0x4e = ASCII 'N' = start of "NTLMSSP" (NTLM fallback)
-  if (firstByte === '60') {
-    log(`[kerberos] Token type: SPNEGO (ASN.1 Application[0]) — looks correct`)
-  } else if (token.startsWith('TlRMTVNTUAA')) {
-    log(`[kerberos] Token type: NTLM (starts with "NTLMSSP\\0" signature) — WRONG, expected SPNEGO`)
-  } else {
-    log(`[kerberos] Token type: UNKNOWN (firstByte=0x${firstByte}) — expected 0x60 for SPNEGO`)
-  }
-
+    // Identify token type from first byte for diagnostics:
   // On Windows, the Negotiate SSPI package silently falls back to NTLM when
   // Kerberos authentication is not possible (e.g. KDC unreachable, invalid
   // SPN, no valid TGT). Knox and other SPNEGO-only gateways cannot process

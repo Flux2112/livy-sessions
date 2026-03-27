@@ -8,13 +8,16 @@ module.exports = {
     '^vscode$': '<rootDir>/src/__mocks__/vscode.ts',
     '^kerberos$': '<rootDir>/src/__mocks__/kerberos.ts',
   },
-  globals: {
-    'ts-jest': {
-      tsconfig: {
-        strict: true,
-        esModuleInterop: true,
-        isolatedModules: true,
+  transform: {
+    '^.+\\.ts$': [
+      'ts-jest',
+      {
+        tsconfig: {
+          strict: true,
+          esModuleInterop: true,
+          isolatedModules: true,
+        },
       },
-    },
+    ],
   },
 }
