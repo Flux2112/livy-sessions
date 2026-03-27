@@ -4,6 +4,7 @@ import * as vscode from 'vscode'
 import { HdfsClient } from '../livy/hdfs'
 import { zipDirectory } from '../livy/zip'
 import type { DependencyField } from '../livy/dependencyStore'
+import type { ManagedDepStore } from '../livy/managedDepStore'
 import type { DependencyTreeItem } from '../views/sessionTreeProvider'
 import type { SessionTreeProvider } from '../views/sessionTreeProvider'
 
@@ -26,6 +27,8 @@ interface SelectionEntry {
 interface StructuredUploadResult {
   readonly field: DependencyField
   readonly uri: string
+  readonly localPath: string
+  readonly remoteName: string
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -284,6 +287,7 @@ function requireHdfsClient(hdfsClient: HdfsClient | null): hdfsClient is HdfsCli
 async function uploadDependency(
   hdfsClient: HdfsClient,
   treeProvider: SessionTreeProvider,
+  managedDepStore: ManagedDepStore,
   resourceUri?: vscode.Uri
 ): Promise<void> {
   if (!requireHdfsClient(hdfsClient)) return
@@ -346,8 +350,9 @@ async function uploadDependency(
     return
   }
 
-  // 4. Persist URI to setting
+  // 4. Persist URI and local path to settings / managed store
   await appendToSettingArray(field, hdfsUri)
+  await managedDepStore.add({ localPath: localUri.fsPath, remoteName: filename, hdfsUri, field, isDirectory: false })
   treeProvider.refresh()
 
   const choice = await vscode.window.showInformationMessage(
@@ -368,7 +373,8 @@ async function uploadDependency(
 async function uploadDirectory(
   folderUri: vscode.Uri,
   hdfsClient: HdfsClient,
-  treeProvider: SessionTreeProvider
+  treeProvider: SessionTreeProvider,
+  managedDepStore: ManagedDepStore
 ): Promise<void> {
   if (!requireHdfsClient(hdfsClient)) return
 
@@ -432,8 +438,9 @@ async function uploadDirectory(
     }
   }
 
-  // 4. Persist URI to setting
+  // 4. Persist URI and local path to settings / managed store
   await appendToSettingArray(field, hdfsUri)
+  await managedDepStore.add({ localPath: folderUri.fsPath, remoteName, hdfsUri, field, isDirectory: true })
   treeProvider.refresh()
 
   const choice = await vscode.window.showInformationMessage(
@@ -454,6 +461,7 @@ async function uploadDirectory(
 async function uploadStructuredDependencies(
   hdfsClient: HdfsClient,
   treeProvider: SessionTreeProvider,
+  managedDepStore: ManagedDepStore,
   resourceUri?: vscode.Uri,
   resourceUris?: readonly vscode.Uri[]
 ): Promise<void> {
@@ -506,6 +514,8 @@ async function uploadStructuredDependencies(
           successful.push({
             field: inferDependencyFieldForBatch(target.localPath),
             uri,
+            localPath: target.localPath,
+            remoteName: target.remotePath,
           })
         } catch (err) {
           if (token.isCancellationRequested || String(err).toLowerCase().includes('abort')) {
@@ -521,6 +531,7 @@ async function uploadStructuredDependencies(
 
   for (const item of successful) {
     await appendToSettingArray(item.field, item.uri)
+    await managedDepStore.add({ localPath: item.localPath, remoteName: item.remoteName, hdfsUri: item.uri, field: item.field, isDirectory: false })
   }
 
   if (successful.length > 0) {
@@ -554,6 +565,7 @@ async function uploadStructuredDependencies(
 async function removeDependency(
   item: DependencyTreeItem,
   hdfsClient: HdfsClient | null,
+  managedDepStore: ManagedDepStore,
   treeProvider: SessionTreeProvider
 ): Promise<void> {
   const { field, uri } = item
@@ -582,8 +594,9 @@ async function removeDependency(
 
   if (!choice) return
 
-  // Remove from settings
+  // Remove from settings and managed store
   await removeFromSettingArray(field, uri)
+  await managedDepStore.remove(uri)
 
   // Optionally delete from HDFS
   if (choice === 'Remove + Delete from HDFS' && canDeleteFromHdfs && hdfsClient) {
@@ -611,13 +624,14 @@ async function removeDependency(
 export function registerDependencyCommands(
   context: vscode.ExtensionContext,
   getHdfsClient: () => HdfsClient | null,
-  treeProvider: SessionTreeProvider
+  treeProvider: SessionTreeProvider,
+  managedDepStore: ManagedDepStore
 ): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('livy.uploadDependency', async (resourceUri?: vscode.Uri) => {
       const client = getHdfsClient()
       if (!requireHdfsClient(client)) return
-      await uploadDependency(client, treeProvider, resourceUri)
+      await uploadDependency(client, treeProvider, managedDepStore, resourceUri)
     }),
 
     vscode.commands.registerCommand(
@@ -625,7 +639,7 @@ export function registerDependencyCommands(
       async (folderUri: vscode.Uri) => {
         const client = getHdfsClient()
         if (!requireHdfsClient(client)) return
-        await uploadDirectory(folderUri, client, treeProvider)
+        await uploadDirectory(folderUri, client, treeProvider, managedDepStore)
       }
     ),
 
@@ -634,14 +648,14 @@ export function registerDependencyCommands(
       async (resourceUri?: vscode.Uri, resourceUris?: readonly vscode.Uri[]) => {
         const client = getHdfsClient()
         if (!requireHdfsClient(client)) return
-        await uploadStructuredDependencies(client, treeProvider, resourceUri, resourceUris)
+        await uploadStructuredDependencies(client, treeProvider, managedDepStore, resourceUri, resourceUris)
       }
     ),
 
     vscode.commands.registerCommand(
       'livy.removeDependency',
       async (item: DependencyTreeItem) => {
-        await removeDependency(item, getHdfsClient(), treeProvider)
+        await removeDependency(item, getHdfsClient(), managedDepStore, treeProvider)
       }
     )
   )

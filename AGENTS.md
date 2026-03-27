@@ -8,8 +8,22 @@ This file documents the conventions and best practices all agents (human and AI)
 
 This is a **VSCode extension** written in **TypeScript**. It connects to an Apache Livy server and allows users to create sessions, execute code, and interactively run selected editor text against a Spark cluster.
 
-Reference implementation: `/workspaces/data-ingestion/python/src/scripts/livy_session.py`  
-Implementation plan: `docs/plans/implementation-plan.md`
+Reference implementation: `/workspaces/data-ingestion/python/src/scripts/livy_session.py`
+
+---
+
+## Quick Start
+
+```bash
+npm run build:dev   # dev bundle + source maps → out/extension.js
+npm run watch       # esbuild watch mode (rebuilds on save)
+npm test            # Jest unit tests (ts-jest)
+npm run typecheck   # tsc --noEmit (type-check only)
+npm run lint        # ESLint
+npm run package     # vsce package → .vsix
+```
+
+> **Never manually bump `package.json` version on `main`** — CI auto-bumps minor on every push.
 
 ---
 
@@ -19,9 +33,14 @@ Implementation plan: `docs/plans/implementation-plan.md`
 src/
   extension.ts          – activate() / deactivate() entry point
   livy/
-    types.ts            – shared TypeScript interfaces and enums
+    types.ts            – shared TypeScript interfaces and string-union types
     client.ts           – Livy REST API HTTP client
     sessionManager.ts   – stateful session lifecycle management
+    auth.ts             – auth header factory (none / basic / bearer / kerberos)
+    kerberos.ts         – SPNEGO token generation via native kerberos addon
+    hdfs.ts             – WebHDFS client for file uploads
+    dependencyStore.ts  – tracks jar/file dependencies per session
+    zip.ts              – ZIP archive helper for directory uploads
   views/
     sessionTreeProvider.ts  – TreeDataProvider for the sidebar
     statusBar.ts            – status bar item
@@ -29,58 +48,31 @@ src/
     session.ts          – session lifecycle commands
     execute.ts          – code execution commands
     logs.ts             – log retrieval commands
+    dependencies.ts     – dependency upload / management commands
+  __tests__/            – Jest unit tests (ts-jest)
+  __mocks__/
+    vscode.ts           – manual VSCode API mock
+    kerberos.ts         – manual kerberos native addon mock
 media/
   livy.svg              – activity bar icon
 docs/
   research/             – background research notes
-  plans/                – implementation plans
+  plans/                – design plans (dependency-management.md, dependency-lifecycle.md)
 ```
 
 ---
 
 ## TypeScript Guidelines
 
-### General
+### Project Conventions (non-obvious, not enforced by tooling)
 
-- **Strict mode is required.** `tsconfig.json` must include `"strict": true`. Never use `any` unless wrapping an untyped third-party boundary; prefer `unknown` and narrow it.
-- **No implicit returns.** Every code path in a non-void function must return a typed value.
-- **Prefer `const`** over `let`; never use `var`.
-- **Use `readonly`** on object properties and array fields that must not be mutated after construction.
-- **Prefer named exports** over default exports for all non-entry-point modules; default exports are allowed only in `extension.ts`.
-- **Prefer interfaces over type aliases** for object shapes. Use type aliases for unions, intersections, and mapped types.
-- **Use `unknown` instead of `any`** when the type is truly unknown. Narrow with type guards.
-- **Enable additional strict compiler checks** in `tsconfig.json`: `noImplicitAny`, `strictNullChecks`, `strictFunctionTypes`, `strictPropertyInitialization`, `noImplicitThis`, `alwaysStrict`.
-- **Recommended compiler settings**: `"target": "ES2020"`, `"esModuleInterop": true`, `"skipLibCheck": true`, `"forceConsistentCasingInFileNames": true`.
-- **Use type inference where possible** — avoid redundant annotations when the type is obvious from the assignment. Be explicit for public API parameters and return types.
-- **Use type guards** to safely narrow union types. Prefer built-in guards (`typeof`, `instanceof`, `in`) and user-defined type guard functions (`value is T`) over type assertions (`as`).
-- **Always handle `null` and `undefined`** — use optional chaining (`?.`) and nullish coalescing (`??`).
-- **Use `const` assertions** (`as const`) to produce narrower literal types.
-- **Use `import type` / `export type`** for type-only imports to reduce bundle size. Enable `"isolatedModules": true` in `tsconfig.json` to enforce this.
-- **Avoid excessive type complexity** — deeply nested recursive mapped types slow down compilation. Prefer built-in utility types (`Partial`, `Readonly`, `Pick`, etc.) and split complex types into named interfaces.
-
-### Functions
-
-- **Annotate parameter and return types** for all exported and non-trivial functions.
-- **Use default parameters** instead of conditional checks inside the function body.
-- **Keep functions small and focused** — a function should have a single responsibility. Split large functions into smaller, pure helpers.
-- **Use rest parameters** (`...args: T[]`) for variadic arguments instead of overloads where possible.
-
-### Code Organisation
-
-- **Organise code into logical modules** with clear single responsibilities. Separate models, services, and commands into distinct files.
-- **Use barrel files** (`index.ts`) to re-export from a module's files, providing a clean public API surface.
-- **Design for testability** — pass dependencies via constructor or function parameters (dependency injection) rather than instantiating them inside a class, so they can be mocked in tests.
-- **Prefer pure functions** where possible — they are easier to reason about and test.
-
-### Async / Concurrency
-
-- **All I/O must be async.** Never use synchronous HTTP, file, or blocking calls in the extension host.
-- **Use `async/await`** consistently. Avoid raw `.then()/.catch()` chains except where Promise combinator helpers (`Promise.all`, `Promise.race`) are clearer.
-- **Never swallow errors.** Every `await` in a command handler must be wrapped in `try/catch` or handled with `.catch()`. Errors must be surfaced to the user via `vscode.window.showErrorMessage` or logged to the Output Channel.
-- **Respect `CancellationToken`.** All polling loops must check `token.isCancellationRequested` and resolve early (not throw) on cancellation.
-- **Use `Promise.all`** for independent parallel async operations instead of sequential `await` calls.
-- **Flatten async chains** — avoid deeply nested `if`/`await` blocks. Use early returns to reduce nesting.
-- **Use generic type parameters on async functions** (e.g. `fetchData<T>(url: string): Promise<T>`) to preserve type safety across async boundaries.
+- **String union types, not `enum`** — `type SessionState = 'idle' | 'busy' | 'starting'`. Enums are not used anywhere in this codebase.
+- **`readonly` on all interface fields** — every interface in `types.ts` is fully readonly. Follow this pattern.
+- **Named exports everywhere** except `extension.ts` — `activate()` / `deactivate()` use default export rules; all other modules use named exports.
+- **`void` prefix for fire-and-forget promises** — satisfies the `no-floating-promises` lint rule without a try/catch wrapper (e.g. `void manager.restoreSession()`).
+- **`require()` not `import()` for `kerberos`** — esbuild bundles relative dynamic imports; a bare-specifier `require('kerberos')` is left as-is. See gotcha #7.
+- **`import type` for type-only imports** — enforced by `isolatedModules: true` in tsconfig.
+- **Use `unknown` not `any`** — narrow with type guards. `any` is banned by lint.
 
 ### Error Handling
 
@@ -88,11 +80,11 @@ docs/
 - HTTP non-2xx responses must throw `LivyApiError`.
 - Command handlers must catch errors and show a user-friendly message. Never let an unhandled promise rejection crash the extension host.
 
-### Type Testing
+### Async / Cancellation
 
-- Use `@ts-expect-error` comments to assert that certain expressions should produce a type error (useful in tests).
-- Use custom assertion functions (`asserts value is T`) for runtime type narrowing.
-- Prefer the `tsd` library for dedicated type-level tests when the type surface is complex.
+- All polling loops must check `token.isCancellationRequested` and resolve early (not throw) on cancellation.
+- Pass `AbortSignal` into delay helpers so sleep itself is interruptible.
+- Use `combineCancellation()` when merging two `CancellationToken`s (see `executeCode` in `sessionManager.ts`).
 
 ---
 
@@ -113,9 +105,9 @@ docs/
 ### Configuration
 
 - All user-facing settings are namespaced under `livy.*`.
-- Read configuration at command invocation time, not at `activate()` time, so changes take effect without a reload.
+- `LivyClient` and `HdfsClient` are constructed from config in `activate()` and **re-created** (not patched) whenever any `livy.*` setting changes via `onDidChangeConfiguration`. Use `manager.setClient()` to hot-swap the client without restarting the session.
 - Passwords and tokens must use `context.secrets` (VSCode Secrets API), never `workspaceState` or settings JSON.
-- Use `vscode.workspace.onDidChangeConfiguration` to re-read settings if the client needs to react to URL or auth changes.
+- Use `vscode.workspace.onDidChangeConfiguration` to trigger client re-creation on URL or auth changes.
 
 ### State Persistence
 
@@ -170,8 +162,21 @@ docs/
   - `"watch"` – esbuild watch mode for development.
   - `"lint"` – eslint.
   - `"typecheck"` – `tsc --noEmit`.
+  - `"test"` – jest.
+  - `"package"` – `vsce package` (produces `.vsix`).
   - `"vscode:prepublish"` – runs `"build"`.
 - Do not commit `out/` or `node_modules/`.
+
+---
+
+## CI / CD
+
+- **`.github/workflows/publish.yml`** runs on every push to `main`:
+  1. `typecheck` → `lint` → `test`
+  2. Auto-bumps the **minor** version (`npm version minor --no-git-tag-version`) and pushes back with `[skip ci]`
+  3. Creates a git tag `v{version}`
+  4. Builds, packages, and publishes to the VS Code Marketplace using `secrets.AZURE_PAT`
+- Never manually bump the version in `package.json` on `main` — the CI does it automatically.
 
 ---
 
@@ -204,14 +209,29 @@ docs/
 
 ---
 
-## Common TypeScript Mistakes to Avoid
+## Known Gotchas
 
-- **Do not use `any`** — it disables type checking entirely. Use generics or `unknown` instead.
-- **Do not disable strict mode** — always keep `"strict": true` in `tsconfig.json`.
-- **Do not add redundant type annotations** where TypeScript can infer the type — trust the inference system.
-- **Do not skip type guards** when working with union types or `unknown` values.
-- **Do not ignore `null`/`undefined`** — always handle nullable values explicitly using null checks, optional chaining, or nullish coalescing.
-- **Do not use `console.log`** in production code — use the Output Channel logger.
+These are non-obvious behaviours that differ from what you'd expect reading the code at a glance:
+
+1. **`livy.refreshDependencyContext` calls `cmdRestartSession`** — the command title is misleading. Triggering "Refresh Dependency Context" from the tree view actually kills and recreates the active session.
+
+2. **`runSelection` falls back to the full file** — if the editor selection is empty, `livy.runSelection` silently sends the entire document. The command name implies a selection is required.
+
+3. **Tree root refresh always hits the network** — `getChildren(undefined)` calls `manager.listSessions()`. Every sidebar expand or `refresh()` fires an HTTP request.
+
+4. **`DependencyStore` is read-only** — it computes active/pending state but makes no config writes. Adding/removing URIs from settings is done directly in `commands/dependencies.ts` via `config.update(field, newArray)`.
+
+5. **`restoreSession` fails silently** — if the Livy server no longer has the stored session ID, the ID is cleared with no user notification. This is intentional.
+
+6. **`killSession` clears state in `finally`** — even if `client.deleteSession()` throws, `_activeSession` is set to `null` and `onSessionChanged` fires. UI stays consistent even when the server is unreachable.
+
+7. **`kerberos` must be loaded via `require()`, not `import()`** — esbuild would try to bundle a relative dynamic `import('./kerberos')`, but a bare-specifier `require('kerberos')` is left alone. The module is also listed as `external` in `esbuild.js`.
+
+8. **Kerberos principal format is platform-dependent** — `normalizePrincipal()` converts `HTTP@host` ↔ `HTTP/host` based on `process.platform`. Without this, Windows SSPI silently falls back to NTLM and SPNEGO-only gateways (Knox) reject the request.
+
+9. **HDFS URL normalisation strips the suffix** — `HdfsClient` strips any `/webhdfs/v1` or `/webhdfs` suffix from the configured URL and always re-appends `/webhdfs/v1`. Configuring the full URL with the suffix still works.
+
+10. **Two-token cancellation merging in `executeCode`** — `executeCode` receives both a `CancellationToken` from `withProgress` and an optional caller token. `combineCancellation()` merges them; both must be disposed after use.
 
 ---
 
@@ -219,6 +239,6 @@ docs/
 
 - VSCode Extension API: https://code.visualstudio.com/api
 - Livy REST API: https://livy.incubator.apache.org/docs/latest/rest-api.html
-- Implementation plan: `docs/plans/implementation-plan.md`
+- Design plans: `docs/plans/`
 - Research notes: `docs/research/`
 - Reference Python script: `/workspaces/data-ingestion/python/src/scripts/livy_session.py`

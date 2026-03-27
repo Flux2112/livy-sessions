@@ -90,11 +90,13 @@ describe('registerDependencyCommands - structured upload', () => {
     const upload = jest.fn(async (_local: string, remote: string) => `hdfs:///user/alice/livy-deps/${remote}`)
     const hdfsClient = { upload, delete: jest.fn() }
     const treeProvider = { refresh: jest.fn() }
+    const managedDepStore = { add: jest.fn(), remove: jest.fn(), getAll: jest.fn(() => []), clear: jest.fn() }
 
     registerDependencyCommands(
       { subscriptions: [] } as unknown as vscode.ExtensionContext,
       () => hdfsClient as never,
-      treeProvider as never
+      treeProvider as never,
+      managedDepStore as never
     )
 
     const calls = (vscode.commands.registerCommand as jest.Mock).mock.calls
@@ -170,11 +172,13 @@ describe('registerDependencyCommands - structured upload', () => {
     const upload = jest.fn(async (_local: string, remote: string) => `hdfs:///user/alice/livy-deps/${remote}`)
     const hdfsClient = { upload, delete: jest.fn() }
     const treeProvider = { refresh: jest.fn() }
+    const managedDepStore = { add: jest.fn(), remove: jest.fn(), getAll: jest.fn(() => []), clear: jest.fn() }
 
     registerDependencyCommands(
       { subscriptions: [] } as unknown as vscode.ExtensionContext,
       () => hdfsClient as never,
-      treeProvider as never
+      treeProvider as never,
+      managedDepStore as never
     )
 
     const calls = (vscode.commands.registerCommand as jest.Mock).mock.calls

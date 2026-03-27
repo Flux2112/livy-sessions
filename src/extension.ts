@@ -3,6 +3,7 @@ import { LivyClient } from './livy/client'
 import { buildHdfsClientFromConfig, HdfsClient } from './livy/hdfs'
 import { SessionManager } from './livy/sessionManager'
 import { DependencyStore } from './livy/dependencyStore'
+import { ManagedDepStore } from './livy/managedDepStore'
 import { LivyStatusBar } from './views/statusBar'
 import { SessionTreeProvider } from './views/sessionTreeProvider'
 import { registerSessionCommands } from './commands/session'
@@ -36,9 +37,10 @@ function buildHdfsClient(output: vscode.OutputChannel): HdfsClient | null {
 // ─── Activation ───────────────────────────────────────────────────────────────
 
 export function activate(context: vscode.ExtensionContext): void {
-  // Output channel – created first, shared across all modules
+  // Two output channels: internal extension/HTTP logs vs. Spark-facing output
   const output = vscode.window.createOutputChannel('Livy')
-  context.subscriptions.push(output)
+  const livyOutput = vscode.window.createOutputChannel('Livy Output')
+  context.subscriptions.push(output, livyOutput)
 
   // HTTP client (read from config at activation time; re-created on config change)
   let client = buildClientFromConfig(output)
@@ -47,17 +49,20 @@ export function activate(context: vscode.ExtensionContext): void {
   let hdfsClient = buildHdfsClient(output)
 
   // Session manager
-  const manager = new SessionManager({ context, output, client })
+  const manager = new SessionManager({ context, output, livyOutput, client })
   context.subscriptions.push(manager)
 
   // Dependency store (stateless, reads settings on demand)
   const depStore = new DependencyStore()
 
+  // Managed dependency store (persists local path ↔ HDFS URI mappings in workspaceState)
+  const managedDepStore = new ManagedDepStore(context.workspaceState)
+
   // Views
   const statusBar = new LivyStatusBar()
   context.subscriptions.push(statusBar)
 
-  const treeProvider = new SessionTreeProvider(manager, depStore)
+  const treeProvider = new SessionTreeProvider(manager, depStore, managedDepStore)
   context.subscriptions.push(treeProvider)
 
   const treeView = vscode.window.createTreeView('livySessions', {
@@ -90,10 +95,10 @@ export function activate(context: vscode.ExtensionContext): void {
   )
 
   // Register commands
-  registerSessionCommands(context, manager, treeProvider)
+  registerSessionCommands(context, manager, treeProvider, managedDepStore, () => hdfsClient)
   registerExecuteCommands(context, manager)
   registerLogCommands(context, manager)
-  registerDependencyCommands(context, () => hdfsClient, treeProvider)
+  registerDependencyCommands(context, () => hdfsClient, treeProvider, managedDepStore)
 
   // Restore persisted session (deferred – do not block activate())
   void manager.restoreSession()

@@ -22,12 +22,14 @@ const SESSION_POLL_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 export interface SessionManagerOptions {
   readonly context: vscode.ExtensionContext
   readonly output: vscode.OutputChannel
+  readonly livyOutput: vscode.OutputChannel
   readonly client: LivyClient
 }
 
 export class SessionManager implements vscode.Disposable {
   private readonly context: vscode.ExtensionContext
   private readonly output: vscode.OutputChannel
+  private readonly livyOutput: vscode.OutputChannel
   private client: LivyClient
 
   private _activeSession: LivySession | null = null
@@ -43,6 +45,7 @@ export class SessionManager implements vscode.Disposable {
   constructor(opts: SessionManagerOptions) {
     this.context = opts.context
     this.output = opts.output
+    this.livyOutput = opts.livyOutput
     this.client = opts.client
   }
 
@@ -59,6 +62,23 @@ export class SessionManager implements vscode.Disposable {
   /** Replace the underlying HTTP client (e.g. after config change). */
   setClient(client: LivyClient): void {
     this.client = client
+  }
+
+  private isSessionOwnedByConfiguredUser(session: LivySession): boolean {
+    const configuredUser = vscode.workspace
+      .getConfiguration('livy')
+      .get<string>('username', '')
+      .trim()
+      .toLowerCase()
+    if (!configuredUser) {
+      return true
+    }
+
+    const candidates = [session.owner, session.proxyUser]
+      .filter((candidate): candidate is string => Boolean(candidate))
+      .map((candidate) => candidate.trim().toLowerCase())
+
+    return candidates.includes(configuredUser)
   }
 
   // ─── Session Lifecycle ──────────────────────────────────────────────────────
@@ -227,6 +247,21 @@ export class SessionManager implements vscode.Disposable {
       return
     }
 
+    let targetSession = this._activeSession?.id === sessionId ? this._activeSession : null
+    if (!targetSession) {
+      try {
+        targetSession = await this.client.getSession(sessionId)
+      } catch (err) {
+        this.handleError('Failed to resolve session before kill', err)
+        return
+      }
+    }
+
+    if (!this.isSessionOwnedByConfiguredUser(targetSession)) {
+      void vscode.window.showErrorMessage('Cannot kill sessions owned by other users.')
+      return
+    }
+
     try {
       await this.client.deleteSession(sessionId)
       this.log(`Session #${sessionId} killed.`)
@@ -259,15 +294,22 @@ export class SessionManager implements vscode.Disposable {
       return
     }
 
+    const killableSessions = sessions.filter((session) => this.isSessionOwnedByConfiguredUser(session))
+
+    if (killableSessions.length === 0) {
+      void vscode.window.showInformationMessage('No Livy sessions owned by the configured user to kill.')
+      return
+    }
+
     const answer = await vscode.window.showWarningMessage(
-      `Kill all ${sessions.length} Livy session(s)?`,
+      `Kill all ${killableSessions.length} Livy session(s) owned by the configured user?`,
       { modal: true },
       'Kill All'
     )
     if (answer !== 'Kill All') return
 
     let killed = 0
-    for (const s of sessions) {
+    for (const s of killableSessions) {
       try {
         await this.client.deleteSession(s.id)
         killed++
@@ -277,10 +319,20 @@ export class SessionManager implements vscode.Disposable {
       }
     }
 
-    this._activeSession = null
-    await this.context.workspaceState.update(WORKSPACE_KEY_SESSION_ID, undefined)
-    this._onSessionChanged.fire({ session: null })
-    void vscode.window.showInformationMessage(`Killed ${killed} of ${sessions.length} session(s).`)
+    const activeSessionKilled = this._activeSession
+      ? killableSessions.some((session) => session.id === this._activeSession?.id)
+      : false
+    if (activeSessionKilled) {
+      this._activeSession = null
+      await this.context.workspaceState.update(WORKSPACE_KEY_SESSION_ID, undefined)
+      this._onSessionChanged.fire({ session: null })
+    } else {
+      this._onSessionChanged.fire({ session: this._activeSession })
+    }
+
+    void vscode.window.showInformationMessage(
+      `Killed ${killed} of ${killableSessions.length} owned session(s).`
+    )
   }
 
   /**
@@ -355,6 +407,7 @@ export class SessionManager implements vscode.Disposable {
 
           const statId = statement.id
           this.log(`[${formatTimestamp(new Date())}] Statement #${statId} submitted (${kind})`)
+          this._onStatementComplete.fire({ sessionId, statement })
 
           // Poll until terminal state
           for (;;) {
@@ -381,6 +434,10 @@ export class SessionManager implements vscode.Disposable {
 
             this.log(`[${formatTimestamp(new Date())}] State: ${current.state}…`)
             progress.report({ message: current.state })
+            this._onStatementComplete.fire({ sessionId, statement: current })
+
+            // Stream session logs on every poll so output appears like `tail -f`.
+            await this.appendNewLogs(sessionId, abortController.signal)
 
             if (current.state === 'available' || current.state === 'error' || current.state === 'cancelled') {
               this.printStatementResult(current)
@@ -391,7 +448,6 @@ export class SessionManager implements vscode.Disposable {
               } catch {
                 // best-effort
               }
-              this._onStatementComplete.fire({ sessionId, statement: current })
               return current
             }
           }
@@ -415,9 +471,9 @@ export class SessionManager implements vscode.Disposable {
     try {
       const res = await this.client.getLogs(sid, from ?? 0, size ?? LOG_SIZE)
       const lines = res.log.join('\n')
-      this.log(`--- Logs (from=${res.from}, total=${res.total}) ---`)
-      this.log(lines)
-      this.output.show(true)
+      this.livyLog(`--- Logs (from=${res.from}, total=${res.total}) ---`)
+      this.livyLog(lines)
+      this.livyOutput.show(true)
       return res
     } catch (err) {
       this.handleError('Failed to retrieve logs', err)
@@ -478,6 +534,10 @@ export class SessionManager implements vscode.Disposable {
     this.output.appendLine(message)
   }
 
+  private livyLog(message: string): void {
+    this.livyOutput.appendLine(message)
+  }
+
   private handleError(prefix: string, err: unknown): void {
     if (err instanceof LivyApiError) {
       // Log full details to the Output Channel (no truncation)
@@ -500,32 +560,47 @@ export class SessionManager implements vscode.Disposable {
     this.output.show(true)
   }
 
+  private async appendNewLogs(sessionId: number, signal?: AbortSignal): Promise<void> {
+    try {
+      const res = await this.client.getLogs(sessionId, this._logOffset, LOG_SIZE, signal)
+      if (res.log.length > 0) {
+        this.livyLog(`--- Session logs (from=${res.from}) ---`)
+        this.livyLog(res.log.join('\n'))
+        this.livyLog(`---------------------------------------`)
+        this.livyOutput.show(true)
+      }
+      this._logOffset = res.from + res.log.length
+    } catch {
+      // best-effort: if we can't fetch logs, don't fail the execution
+    }
+  }
+
   private printStatementResult(statement: LivyStatement): void {
     const ts = formatTimestamp(new Date())
-    this.log(`[${ts}] State: ${statement.state}`)
+    this.log(`[${ts}] Statement #${statement.id} ${statement.state}`)
 
     if (!statement.output) {
       return
     }
 
     if (statement.output.status === 'error') {
-      this.log(`--- Error ---`)
-      this.log(`${statement.output.ename ?? 'Error'}: ${statement.output.evalue ?? ''}`)
+      this.livyLog(`--- Error ---`)
+      this.livyLog(`${statement.output.ename ?? 'Error'}: ${statement.output.evalue ?? ''}`)
       if (statement.output.traceback) {
-        this.log(statement.output.traceback.join('\n'))
+        this.livyLog(statement.output.traceback.join('\n'))
       }
-      this.log(`-------------`)
-      this.output.show(true)
+      this.livyLog(`-------------`)
+      this.livyOutput.show(true)
       return
     }
 
     if (statement.output.data) {
       const text = statement.output.data['text/plain']
       if (text) {
-        this.log(`--- Output ---`)
-        this.log(text)
-        this.log(`--------------`)
-        this.output.show(true)
+        this.livyLog(`--- Output ---`)
+        this.livyLog(text)
+        this.livyLog(`--------------`)
+        this.livyOutput.show(true)
       }
     }
   }

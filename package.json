@@ -72,6 +72,12 @@
         "icon": "$(run-all)"
       },
       {
+        "command": "livy.viewStatementOutput",
+        "title": "View Statement Output",
+        "category": "Livy",
+        "icon": "$(output)"
+      },
+      {
         "command": "livy.getLogs",
         "title": "Show Livy Logs",
         "category": "Livy",
@@ -120,6 +126,12 @@
       {
         "command": "livy.refreshDependencyContext",
         "title": "Refresh Dependency Context",
+        "category": "Livy",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "livy.refreshSingleDependency",
+        "title": "Refresh This Dependency",
         "category": "Livy",
         "icon": "$(cloud-upload)"
       }
@@ -195,18 +207,23 @@
         },
         {
           "command": "livy.killSession",
-          "when": "view == livySessions && (viewItem == livySession || viewItem == livyActiveSession)",
+          "when": "view == livySessions && (viewItem == livyOwnSession || viewItem == livyActiveSession)",
           "group": "livy@2"
         },
         {
           "command": "livy.showSessionInfo",
-          "when": "view == livySessions && (viewItem == livySession || viewItem == livyActiveSession)",
+          "when": "view == livySessions && (viewItem == livyOwnSession || viewItem == livyActiveSession || viewItem == livyOtherSession)",
           "group": "livy@3"
         },
         {
           "command": "livy.getLogs",
-          "when": "view == livySessions && (viewItem == livySession || viewItem == livyActiveSession)",
+          "when": "view == livySessions && (viewItem == livyOwnSession || viewItem == livyActiveSession || viewItem == livyOtherSession)",
           "group": "livy@4"
+        },
+        {
+          "command": "livy.viewStatementOutput",
+          "when": "view == livySessions && (viewItem == livyStatement || viewItem == livyStatementPending)",
+          "group": "livy@1"
         },
         {
           "command": "livy.refreshDependencyContext",
@@ -215,8 +232,13 @@
         },
         {
           "command": "livy.removeDependency",
-          "when": "view == livySessions && (viewItem == livyDep || viewItem == livyDepPending)",
+          "when": "view == livySessions && (viewItem == livyDep || viewItem == livyDepPending || viewItem == livyManagedDep || viewItem == livyManagedDepPending)",
           "group": "livy@4"
+        },
+        {
+          "command": "livy.refreshSingleDependency",
+          "when": "view == livySessions && (viewItem == livyManagedDep || viewItem == livyManagedDepPending)",
+          "group": "livy@1"
         }
       ]
     },
@@ -260,7 +282,7 @@
         "livy.username": {
           "type": "string",
           "default": "",
-          "description": "Username for basic auth"
+          "description": "Username used to identify your Livy sessions in the sidebar (also used for basic auth and HDFS path substitution)."
         },
         "livy.password": {
           "type": "string",

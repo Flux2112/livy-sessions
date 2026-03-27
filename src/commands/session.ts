@@ -1,7 +1,11 @@
+import * as fs from 'node:fs'
 import * as vscode from 'vscode'
+import type { HdfsClient } from '../livy/hdfs'
+import type { ManagedDepStore } from '../livy/managedDepStore'
 import type { SessionManager } from '../livy/sessionManager'
 import type { LivySession, SessionKind } from '../livy/types'
-import type { SessionTreeItem } from '../views/sessionTreeProvider'
+import { zipDirectory } from '../livy/zip'
+import type { DependencyTreeItem, SessionTreeItem } from '../views/sessionTreeProvider'
 import type { SessionTreeProvider } from '../views/sessionTreeProvider'
 
 // ─── Session Commands ─────────────────────────────────────────────────────────
@@ -9,7 +13,9 @@ import type { SessionTreeProvider } from '../views/sessionTreeProvider'
 export function registerSessionCommands(
   context: vscode.ExtensionContext,
   manager: SessionManager,
-  provider: SessionTreeProvider
+  provider: SessionTreeProvider,
+  managedDepStore: ManagedDepStore,
+  getHdfsClient: () => HdfsClient | null
 ): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('livy.createSession', () =>
@@ -34,7 +40,10 @@ export function registerSessionCommands(
       cmdRestartSession(manager)
     ),
     vscode.commands.registerCommand('livy.refreshDependencyContext', () =>
-      cmdRestartSession(manager)
+      cmdRefreshDependencyContext(manager, managedDepStore, getHdfsClient)
+    ),
+    vscode.commands.registerCommand('livy.refreshSingleDependency', (item: DependencyTreeItem) =>
+      cmdRefreshSingleDependency(item, manager, managedDepStore, getHdfsClient)
     )
   )
 }
@@ -172,4 +181,236 @@ async function resolveLiveSessionForRestart(
     (session) => session.kind === activeSession.kind && session.name === activeSession.name
   )
   return sameIdentity ?? liveCandidates[0]
+}
+
+async function cmdRefreshDependencyContext(
+  manager: SessionManager,
+  managedDepStore: ManagedDepStore,
+  getHdfsClient: () => HdfsClient | null
+): Promise<void> {
+  const managedDeps = managedDepStore.getAll()
+
+  if (managedDeps.length === 0) {
+    void vscode.window.showInformationMessage(
+      'No managed dependencies to refresh. Performing a plain session restart.'
+    )
+    await cmdRestartSession(manager)
+    return
+  }
+
+  const hdfsClient = getHdfsClient()
+  if (!hdfsClient) {
+    void vscode.window
+      .showErrorMessage(
+        'livy.hdfs.baseUrl is not configured. Cannot re-upload managed dependencies.',
+        'Open Settings'
+      )
+      .then((choice) => {
+        if (choice === 'Open Settings') {
+          void vscode.commands.executeCommand('workbench.action.openSettings', 'livy.hdfs.baseUrl')
+        }
+      })
+    return
+  }
+
+  const confirm = await vscode.window.showWarningMessage(
+    `Re-upload ${managedDeps.length} managed dependency(s) to HDFS and restart session?`,
+    { modal: true },
+    'Refresh'
+  )
+  if (confirm !== 'Refresh') return
+
+  // Capture kind/name before killing so we can recreate with the same identity.
+  const activeSession = manager.activeSession
+  let sessionKind: SessionKind | undefined
+  let sessionName: string | undefined
+
+  if (activeSession) {
+    const liveSession = await resolveLiveSessionForRestart(manager, activeSession)
+    const restartSource = liveSession ?? activeSession
+    sessionKind = restartSource.kind
+    sessionName = restartSource.name ?? undefined
+
+    if (liveSession) {
+      await manager.killSession(liveSession.id)
+    }
+  }
+
+  const config = vscode.workspace.getConfiguration('livy')
+  const username = config.get<string>('username', '')
+
+  let uploadedCount = 0
+
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: `Livy: Re-uploading ${managedDeps.length} dependency(s)…`,
+      cancellable: true,
+    },
+    async (progress, token) => {
+      const ac = new AbortController()
+      token.onCancellationRequested(() => ac.abort())
+
+      for (let i = 0; i < managedDeps.length; i++) {
+        const dep = managedDeps[i]
+        progress.report({ message: `${i + 1}/${managedDeps.length}: ${dep.remoteName}` })
+
+        if (token.isCancellationRequested) break
+
+        if (!fs.existsSync(dep.localPath)) {
+          void vscode.window.showWarningMessage(
+            `Skipped "${dep.remoteName}": local path not found at "${dep.localPath}".`
+          )
+          continue
+        }
+
+        let uploadPath = dep.localPath
+        let tempZip: string | undefined
+
+        try {
+          if (dep.isDirectory) {
+            tempZip = await zipDirectory(dep.localPath)
+            uploadPath = tempZip
+          }
+
+          await hdfsClient.upload(uploadPath, dep.remoteName, username, ac.signal)
+          uploadedCount++
+        } catch (err) {
+          if (token.isCancellationRequested || String(err).toLowerCase().includes('abort')) break
+          void vscode.window.showWarningMessage(
+            `Failed to re-upload "${dep.remoteName}": ${String(err)}`
+          )
+        } finally {
+          if (tempZip) {
+            try {
+              await fs.promises.unlink(tempZip)
+            } catch {
+              // best-effort cleanup
+            }
+          }
+        }
+      }
+    }
+  )
+
+  if (uploadedCount === 0 && managedDeps.length > 0) {
+    void vscode.window.showWarningMessage('No dependencies were re-uploaded. Session not restarted.')
+    return
+  }
+
+  if (activeSession && sessionKind) {
+    await manager.createSession({ kind: sessionKind, name: sessionName })
+  } else {
+    await cmdCreateSession(manager)
+  }
+}
+
+async function cmdRefreshSingleDependency(
+  item: DependencyTreeItem,
+  manager: SessionManager,
+  managedDepStore: ManagedDepStore,
+  getHdfsClient: () => HdfsClient | null
+): Promise<void> {
+  const dep = managedDepStore.getAll().find((d) => d.hdfsUri === item.uri)
+  if (!dep) {
+    void vscode.window.showInformationMessage(
+      `"${item.label}" is a static dependency reference and cannot be re-uploaded from here.`
+    )
+    return
+  }
+
+  const hdfsClient = getHdfsClient()
+  if (!hdfsClient) {
+    void vscode.window
+      .showErrorMessage(
+        'livy.hdfs.baseUrl is not configured. Cannot re-upload managed dependencies.',
+        'Open Settings'
+      )
+      .then((choice) => {
+        if (choice === 'Open Settings') {
+          void vscode.commands.executeCommand('workbench.action.openSettings', 'livy.hdfs.baseUrl')
+        }
+      })
+    return
+  }
+
+  if (!fs.existsSync(dep.localPath)) {
+    void vscode.window.showWarningMessage(
+      `Cannot refresh "${dep.remoteName}": local path not found at "${dep.localPath}".`
+    )
+    return
+  }
+
+  const confirm = await vscode.window.showWarningMessage(
+    `Re-upload "${dep.remoteName}" to HDFS and restart session?`,
+    { modal: true },
+    'Refresh'
+  )
+  if (confirm !== 'Refresh') return
+
+  // Capture session identity before killing
+  const activeSession = manager.activeSession
+  let sessionKind: SessionKind | undefined
+  let sessionName: string | undefined
+
+  if (activeSession) {
+    const liveSession = await resolveLiveSessionForRestart(manager, activeSession)
+    const restartSource = liveSession ?? activeSession
+    sessionKind = restartSource.kind
+    sessionName = restartSource.name ?? undefined
+
+    if (liveSession) {
+      await manager.killSession(liveSession.id)
+    }
+  }
+
+  const config = vscode.workspace.getConfiguration('livy')
+  const username = config.get<string>('username', '')
+
+  let uploaded = false
+  let tempZip: string | undefined
+
+  try {
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `Livy: Re-uploading "${dep.remoteName}"…`,
+        cancellable: true,
+      },
+      async (_progress, token) => {
+        const ac = new AbortController()
+        token.onCancellationRequested(() => ac.abort())
+
+        let uploadPath = dep.localPath
+        if (dep.isDirectory) {
+          tempZip = await zipDirectory(dep.localPath)
+          uploadPath = tempZip
+        }
+
+        await hdfsClient.upload(uploadPath, dep.remoteName, username, ac.signal)
+        uploaded = true
+      }
+    )
+  } catch (err) {
+    if (!String(err).toLowerCase().includes('abort')) {
+      void vscode.window.showErrorMessage(`Failed to re-upload "${dep.remoteName}": ${String(err)}`)
+    }
+    return
+  } finally {
+    if (tempZip) {
+      try {
+        await fs.promises.unlink(tempZip)
+      } catch {
+        // best-effort cleanup
+      }
+    }
+  }
+
+  if (!uploaded) return
+
+  if (activeSession && sessionKind) {
+    await manager.createSession({ kind: sessionKind, name: sessionName })
+  } else {
+    await cmdCreateSession(manager)
+  }
 }
