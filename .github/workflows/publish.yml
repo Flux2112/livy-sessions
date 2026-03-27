@@ -23,10 +23,10 @@ jobs:
           node-version: '20'
 
       - name: Install deps
-        run: npm ci
+        run: npm ci --include=dev
 
       - name: Typecheck
-        run: npm run typecheck
+        run: npx tsc --noEmit
 
       - name: Lint
         run: npm run lint
