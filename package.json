@@ -10,7 +10,7 @@
   },
   "license": "GPL-3.0-or-later",
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.110.0"
   },
   "categories": [
     "Other",
