@@ -1,0 +1,63 @@
+{
+  "name": "@livy/cli",
+  "version": "0.0.0",
+  "description": "Agent-first Livy CLI",
+  "main": "dist/index.js",
+  "bin": {
+    "livy": "./bin/run.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "oclif.manifest.json"
+  ],
+  "oclif": {
+    "bin": "livy",
+    "dirname": "livy",
+    "commands": "./dist/commands",
+    "topicSeparator": " ",
+    "topics": {
+      "session": {
+        "description": "Livy session lifecycle commands"
+      },
+      "exec": {
+        "description": "Execute statements in Livy sessions"
+      },
+      "logs": {
+        "description": "Fetch Livy session logs"
+      },
+      "hdfs": {
+        "description": "Upload and delete WebHDFS files"
+      },
+      "batch": {
+        "description": "Submit and manage Livy batches"
+      },
+      "config": {
+        "description": "Inspect CLI configuration resolution"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:dev": "tsc -p tsconfig.json",
+    "watch": "tsc -w -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "prepack": "oclif manifest",
+    "test": "echo \"No tests specified yet\" && exit 0"
+  },
+  "dependencies": {
+    "@livy/core": "*",
+    "@oclif/core": "^4.0.0"
+  },
+  "optionalDependencies": {
+    "kerberos": "^7.0.0"
+  },
+  "devDependencies": {
+    "@oclif/test": "^4.0.0",
+    "oclif": "^4.0.0",
+    "ts-node": "^10.9.2"
+  }
+}

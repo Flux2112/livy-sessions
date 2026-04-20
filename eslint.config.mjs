@@ -5,10 +5,12 @@ export default tseslint.config(
   {
     ignores: [
       "**/out/",
+      "**/dist/",
       "**/node_modules/",
       "**/esbuild.js",
       "**/jest.config.js",
-      "src/__mocks__/",
+      "**/__mocks__/",
+      "eslint.config.mjs",
     ],
   },
   js.configs.recommended,
@@ -16,7 +18,7 @@ export default tseslint.config(
   {
     languageOptions: {
       parserOptions: {
-        project: "./tsconfig.json",
+        projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -37,7 +39,23 @@ export default tseslint.config(
     }
   },
   {
-    files: ["src/__tests__/**/*.test.ts"],
+    // NOTE: Phase 2 will move dependencyStore, managedDepStore, and sessionManager
+    // out of packages/core into packages/extension. Until then, core still contains
+    // these three VSCode-coupled files and this rule is scoped to new files only.
+    files: ["packages/core/src/**/*.ts"],
+    ignores: [
+      "packages/core/src/dependencyStore.ts",
+      "packages/core/src/managedDepStore.ts",
+      "packages/core/src/sessionManager.ts",
+    ],
+    rules: {
+      "no-restricted-imports": ["error", {
+        paths: [{ name: "vscode", message: "packages/core must not depend on the VSCode API." }]
+      }]
+    }
+  },
+  {
+    files: ["**/__tests__/**/*.test.ts"],
     ...tseslint.configs.disableTypeChecked,
   }
 );

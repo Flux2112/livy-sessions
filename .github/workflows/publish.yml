@@ -29,7 +29,7 @@ jobs:
         run: npm ci --include=dev
 
       - name: Typecheck
-        run: npx tsc --noEmit
+        run: npm run typecheck
 
       - name: Lint
         run: npm run lint
@@ -42,23 +42,24 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git pull --rebase origin main
-          npm version minor --no-git-tag-version
+          npm version minor --no-git-tag-version -w packages/extension
           git commit -am "chore: bump minor version [skip ci]"
           git push origin HEAD:main
 
       - name: Git tag
         run: |
-          VERSION=$(node -p "require('./package.json').version")
+          VERSION=$(node -p "require('./packages/extension/package.json').version")
           git tag "v${VERSION}"
           git push origin "v${VERSION}"
 
       - name: Build
-        run: npm run build
+        run: npm run build -w packages/extension
 
       - name: Package
-        run: npm run package
+        run: npm run package -w packages/extension
 
       - name: Publish
+        working-directory: packages/extension
         run: npx vsce publish --pat ${{ secrets.AZURE_PAT }}
 
       - name: Upload artifact
@@ -66,4 +67,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: vsix
-          path: '*.vsix'
+          path: 'packages/extension/*.vsix'

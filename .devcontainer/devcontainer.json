@@ -1,4 +1,11 @@
 {
-  "image": "pharbor.w.oenb.co.at/oenb-base/oenb-devcontainer:latest",
+  "image": "pharbor.w.oenb.co.at/oenb-base/oenb-devcontainer-vibed:latest",
+  "customizations": {
+    "jetbrains": {
+      "plugins": [
+        "com.github.copilot"
+      ]
+    }
+  }
 }
 

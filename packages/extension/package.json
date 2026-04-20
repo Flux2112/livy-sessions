@@ -1,0 +1,422 @@
+{
+  "name": "@livy/extension",
+  "displayName": "Livy Session",
+  "description": "Connect to Apache Livy and run Spark code interactively from VSCode",
+  "version": "0.18.0",
+  "publisher": "DefySoftwareSolutions",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Flux2112/livy-sessions.git"
+  },
+  "license": "GPL-3.0-or-later",
+  "engines": {
+    "vscode": "^1.110.0"
+  },
+  "categories": [
+    "Other",
+    "Data Science"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "icon": "media/livy.png",
+  "contributes": {
+    "commands": [
+      {
+        "command": "livy.createSession",
+        "title": "Create Livy Session",
+        "category": "Livy",
+        "icon": "$(add)"
+      },
+      {
+        "command": "livy.connectSession",
+        "title": "Connect to Livy Session",
+        "category": "Livy",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "livy.killSession",
+        "title": "Kill Session",
+        "category": "Livy",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "livy.killAllSessions",
+        "title": "Kill All Sessions",
+        "category": "Livy",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "livy.showSessionInfo",
+        "title": "Show Session Info",
+        "category": "Livy",
+        "icon": "$(info)"
+      },
+      {
+        "command": "livy.refreshSessions",
+        "title": "Refresh",
+        "category": "Livy",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "livy.runSelection",
+        "title": "Run Selection in Livy",
+        "category": "Livy",
+        "icon": "$(run)"
+      },
+      {
+        "command": "livy.runFile",
+        "title": "Run File in Livy",
+        "category": "Livy",
+        "icon": "$(run-all)"
+      },
+      {
+        "command": "livy.viewStatementOutput",
+        "title": "View Statement Output",
+        "category": "Livy",
+        "icon": "$(output)"
+      },
+      {
+        "command": "livy.getLogs",
+        "title": "Show Livy Logs",
+        "category": "Livy",
+        "icon": "$(output)"
+      },
+      {
+        "command": "livy.nextLogs",
+        "title": "Next Livy Logs",
+        "category": "Livy"
+      },
+      {
+        "command": "livy.tailLogs",
+        "title": "Tail Livy Logs",
+        "category": "Livy"
+      },
+      {
+        "command": "livy.uploadDependency",
+        "title": "Upload & Add Dependency",
+        "category": "Livy",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "livy.uploadDirectory",
+        "title": "Upload Directory as Livy Dependency",
+        "category": "Livy",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "livy.uploadStructuredDependencies",
+        "title": "Upload Selection (Preserve Structure)",
+        "category": "Livy",
+        "icon": "$(file-submodule)"
+      },
+      {
+        "command": "livy.removeDependency",
+        "title": "Remove Dependency",
+        "category": "Livy",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "livy.restartSession",
+        "title": "Restart Session",
+        "category": "Livy",
+        "icon": "$(debug-restart)"
+      },
+      {
+        "command": "livy.refreshDependencyContext",
+        "title": "Refresh Dependency Context",
+        "category": "Livy",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "livy.refreshSingleDependency",
+        "title": "Refresh This Dependency",
+        "category": "Livy",
+        "icon": "$(cloud-upload)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "livyExplorer",
+          "title": "Livy Sessions",
+          "icon": "media/livy-white.svg"
+        }
+      ]
+    },
+    "views": {
+      "livyExplorer": [
+        {
+          "id": "livySessions",
+          "name": "Sessions"
+        }
+      ]
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "livy.runSelection",
+          "when": "editorHasSelection",
+          "group": "livy@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "livy.uploadDependency",
+          "when": "!explorerResourceIsFolder",
+          "group": "livy@1"
+        },
+        {
+          "command": "livy.uploadDirectory",
+          "when": "explorerResourceIsFolder",
+          "group": "livy@1"
+        },
+        {
+          "command": "livy.uploadStructuredDependencies",
+          "group": "livy@2"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "livy.createSession",
+          "when": "view == livySessions",
+          "group": "navigation@1"
+        },
+        {
+          "command": "livy.refreshSessions",
+          "when": "view == livySessions",
+          "group": "navigation@2"
+        },
+        {
+          "command": "livy.refreshDependencyContext",
+          "when": "view == livySessions",
+          "group": "navigation@3"
+        },
+        {
+          "command": "livy.killAllSessions",
+          "when": "view == livySessions",
+          "group": "navigation@4"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "livy.restartSession",
+          "when": "view == livySessions && viewItem == livyActiveSession",
+          "group": "livy@1"
+        },
+        {
+          "command": "livy.killSession",
+          "when": "view == livySessions && (viewItem == livyOwnSession || viewItem == livyActiveSession)",
+          "group": "livy@2"
+        },
+        {
+          "command": "livy.showSessionInfo",
+          "when": "view == livySessions && (viewItem == livyOwnSession || viewItem == livyActiveSession || viewItem == livyOtherSession)",
+          "group": "livy@3"
+        },
+        {
+          "command": "livy.getLogs",
+          "when": "view == livySessions && (viewItem == livyOwnSession || viewItem == livyActiveSession || viewItem == livyOtherSession)",
+          "group": "livy@4"
+        },
+        {
+          "command": "livy.viewStatementOutput",
+          "when": "view == livySessions && (viewItem == livyStatement || viewItem == livyStatementPending)",
+          "group": "livy@1"
+        },
+        {
+          "command": "livy.refreshDependencyContext",
+          "when": "view == livySessions && viewItem == livyPendingDepsRoot",
+          "group": "livy@1"
+        },
+        {
+          "command": "livy.removeDependency",
+          "when": "view == livySessions && (viewItem == livyDep || viewItem == livyDepPending || viewItem == livyManagedDep || viewItem == livyManagedDepPending)",
+          "group": "livy@4"
+        },
+        {
+          "command": "livy.refreshSingleDependency",
+          "when": "view == livySessions && (viewItem == livyManagedDep || viewItem == livyManagedDepPending)",
+          "group": "livy@1"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "livy.runSelection",
+        "key": "shift+enter",
+        "when": "editorTextFocus"
+      }
+    ],
+    "configuration": {
+      "title": "Livy",
+      "properties": {
+        "livy.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:8998",
+          "description": "Livy server base URL"
+        },
+        "livy.authMethod": {
+          "type": "string",
+          "enum": [
+            "none",
+            "basic",
+            "bearer",
+            "kerberos"
+          ],
+          "default": "none",
+          "description": "Authentication method"
+        },
+        "livy.kerberosServicePrincipal": {
+          "type": "string",
+          "default": "",
+          "description": "Kerberos service principal for SPNEGO auth (e.g. HTTP@livy.example.com). If empty, defaults to HTTP@<hostname-from-serverUrl>.",
+          "markdownDescription": "Kerberos service principal for SPNEGO auth (e.g. `HTTP@livy.example.com`). If empty, defaults to `HTTP@<hostname-from-serverUrl>`."
+        },
+        "livy.kerberosDelegateCredentials": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable Kerberos credential delegation (forwards TGT to the server for downstream services)"
+        },
+        "livy.username": {
+          "type": "string",
+          "default": "",
+          "description": "Username used to identify your Livy sessions in the sidebar (also used for basic auth and HDFS path substitution)."
+        },
+        "livy.password": {
+          "type": "string",
+          "default": "",
+          "description": "Password for basic auth (stored in secrets, not in settings JSON)"
+        },
+        "livy.bearerToken": {
+          "type": "string",
+          "default": "",
+          "description": "Bearer token for auth"
+        },
+        "livy.defaultKind": {
+          "type": "string",
+          "enum": [
+            "spark",
+            "pyspark",
+            "sparkr",
+            "sql"
+          ],
+          "default": "pyspark",
+          "description": "Default statement kind"
+        },
+        "livy.sessionName": {
+          "type": "string",
+          "default": "",
+          "description": "Default session name"
+        },
+        "livy.pollIntervalMs": {
+          "type": "number",
+          "default": 1000,
+          "description": "Statement polling interval in milliseconds"
+        },
+        "livy.sessionPollIntervalMs": {
+          "type": "number",
+          "default": 3000,
+          "description": "Session creation polling interval in milliseconds"
+        },
+        "livy.driverMemory": {
+          "type": "string",
+          "default": "",
+          "description": "Spark driver memory (e.g. 10g)"
+        },
+        "livy.executorMemory": {
+          "type": "string",
+          "default": "",
+          "description": "Spark executor memory"
+        },
+        "livy.executorCores": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "default": null,
+          "description": "Spark executor cores"
+        },
+        "livy.numExecutors": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "default": null,
+          "description": "Number of executors"
+        },
+        "livy.sessionTtl": {
+          "type": "string",
+          "default": "",
+          "description": "Session TTL (e.g. 600m)"
+        },
+        "livy.jars": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional JAR paths"
+        },
+        "livy.pyFiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional pyFiles paths"
+        },
+        "livy.files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Generic files distributed to executor working directories"
+        },
+        "livy.archives": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Archive files extracted on executors (e.g. hdfs:///envs/venv.zip#venv)"
+        },
+        "livy.hdfs.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "WebHDFS base URL, e.g. http://namenode:9870. If empty, upload commands are disabled."
+        },
+        "livy.hdfs.uploadPath": {
+          "type": "string",
+          "default": "/user/{username}/livy-deps",
+          "description": "HDFS path template for uploaded dependencies. {username} is substituted at runtime from livy.username."
+        },
+        "livy.conf": {
+          "type": "object",
+          "default": {},
+          "description": "Additional Spark config properties"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.js --minify",
+    "build:dev": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "lint": "eslint src --ext ts",
+    "typecheck": "tsc --noEmit",
+    "test": "jest",
+    "vscode:prepublish": "npm run build",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "optionalDependencies": {
+    "kerberos": "^7.0.0"
+  },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "@livy/core": "^1.0.0"
+  }
+}
