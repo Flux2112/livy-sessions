@@ -65,6 +65,14 @@ media/
 docs/
   research/             – background research notes
   plans/                – design plans (dependency-management.md, dependency-lifecycle.md)
+.agents/
+  skills/               – SKILL.md files for AI agent discovery
+    livy/               – meta-router skill
+    livy-session/       – interactive session lifecycle
+    livy-batch/         – batch job orchestration
+    livy-hdfs/          – HDFS artifact management
+    livy-debug/         – troubleshooting & log analysis
+    livy-setup/         – configuration bootstrap
 ```
 
 ---
@@ -237,10 +245,28 @@ These are non-obvious behaviours that differ from what you'd expect reading the 
 
 ---
 
+## Agent Skills
+
+Agent skills live in `.agents/skills/` and teach AI agents how to operate the Livy CLI. Each skill is a `SKILL.md` with YAML frontmatter (`name`, `description`) and detailed instructions including CLI syntax, workflow patterns, and Spark domain knowledge.
+
+| Skill | Directory | Purpose |
+|-------|-----------|---------|
+| `livy` | `.agents/skills/livy/` | **Meta-router** — decides which specialized skill to invoke based on user intent |
+| `livy-session` | `.agents/skills/livy-session/` | Interactive Spark session lifecycle: create → exec → cleanup |
+| `livy-batch` | `.agents/skills/livy-batch/` | Batch job orchestration: upload → submit → monitor → logs |
+| `livy-hdfs` | `.agents/skills/livy-hdfs/` | HDFS artifact management: upload, delete, dependency mapping |
+| `livy-debug` | `.agents/skills/livy-debug/` | Troubleshooting: exit code diagnosis, log analysis, error patterns |
+| `livy-setup` | `.agents/skills/livy-setup/` | CLI configuration bootstrap: config files, auth, validation |
+
+**Compound workflows** span multiple skills (e.g., "deploy and run a Spark job" uses `livy-hdfs` then `livy-batch`). The `livy` meta-router skill guides agents through the correct sequence.
+
+---
+
 ## Key References
 
 - VSCode Extension API: https://code.visualstudio.com/api
 - Livy REST API: https://livy.incubator.apache.org/docs/latest/rest-api.html
 - Design plans: `docs/plans/`
 - Research notes: `docs/research/`
+- Agent skills: `.agents/skills/`
 - Reference Python script: `/workspaces/data-ingestion/python/src/scripts/livy_session.py`
