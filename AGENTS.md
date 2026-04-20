@@ -6,7 +6,11 @@ This file documents the conventions and best practices all agents (human and AI)
 
 ## Project Overview
 
-This is a **VSCode extension** written in **TypeScript**. It connects to an Apache Livy server and allows users to create sessions, execute code, and interactively run selected editor text against a Spark cluster.
+This is a **TypeScript monorepo** for Livy integrations:
+
+- `@livy/core`: shared Livy client/auth/HDFS/orchestration logic
+- `@livy/extension`: VSCode extension UX and command wiring
+- `@livy/cli`: agent-first command-line interface for automation
 
 Reference implementation: `/workspaces/data-ingestion/python/src/scripts/livy_session.py`
 
@@ -15,12 +19,12 @@ Reference implementation: `/workspaces/data-ingestion/python/src/scripts/livy_se
 ## Quick Start
 
 ```bash
-npm run build:dev   # dev bundle + source maps → out/extension.js
+npm run build:dev   # build all workspaces (core + extension + cli)
 npm run watch       # esbuild watch mode (rebuilds on save)
 npm test            # Jest unit tests (ts-jest)
 npm run typecheck   # tsc --noEmit (type-check only)
 npm run lint        # ESLint
-npm run package     # vsce package → .vsix
+npm run package     # package extension → .vsix
 ```
 
 > **Never manually bump `package.json` version on `main`** — CI auto-bumps minor on every push.
@@ -30,29 +34,32 @@ npm run package     # vsce package → .vsix
 ## Repository Layout
 
 ```
-src/
-  extension.ts          – activate() / deactivate() entry point
-  livy/
-    types.ts            – shared TypeScript interfaces and string-union types
-    client.ts           – Livy REST API HTTP client
-    sessionManager.ts   – stateful session lifecycle management
-    auth.ts             – auth header factory (none / basic / bearer / kerberos)
-    kerberos.ts         – SPNEGO token generation via native kerberos addon
-    hdfs.ts             – WebHDFS client for file uploads
-    dependencyStore.ts  – tracks jar/file dependencies per session
-    zip.ts              – ZIP archive helper for directory uploads
-  views/
-    sessionTreeProvider.ts  – TreeDataProvider for the sidebar
-    statusBar.ts            – status bar item
-  commands/
-    session.ts          – session lifecycle commands
-    execute.ts          – code execution commands
-    logs.ts             – log retrieval commands
-    dependencies.ts     – dependency upload / management commands
-  __tests__/            – Jest unit tests (ts-jest)
-  __mocks__/
-    vscode.ts           – manual VSCode API mock
-    kerberos.ts         – manual kerberos native addon mock
+packages/
+  core/
+    src/
+      types.ts          – shared interfaces and union types
+      client.ts         – Livy REST API HTTP client
+      auth.ts           – auth header factory (none/basic/bearer/kerberos)
+      kerberos.ts       – SPNEGO token generation via native kerberos addon
+      hdfs.ts           – WebHDFS client for uploads/deletes
+      zip.ts            – ZIP archive helper for directory uploads
+      orchestrator.ts   – wait/poll helpers for sessions/statements/batches
+      __tests__/        – core unit tests
+      __mocks__/        – kerberos mock
+  extension/
+    src/
+      extension.ts      – activate() / deactivate() entry point
+      livy/
+      commands/
+      views/
+      __tests__/
+      __mocks__/
+  cli/
+    src/
+      base-command.ts   – shared CLI base class + exit mapping
+      commands/         – session/exec/logs/hdfs/batch/config topics
+      lib/              – config/flags/output/progress helpers
+      __tests__/        – CLI unit tests
 media/
   livy.svg              – activity bar icon
 docs/
@@ -154,18 +161,13 @@ docs/
 
 ## Build and Tooling
 
-- **Build tool:** esbuild (see `esbuild.js`). Target: `node18`, format: `cjs`.
-- **Entry point:** `src/extension.ts` → `out/extension.js`.
-- `package.json` scripts:
-  - `"build"` – production bundle (minified).
-  - `"build:dev"` – development bundle (source maps, no minify).
-  - `"watch"` – esbuild watch mode for development.
-  - `"lint"` – eslint.
-  - `"typecheck"` – `tsc --noEmit`.
-  - `"test"` – jest.
-  - `"package"` – `vsce package` (produces `.vsix`).
-  - `"vscode:prepublish"` – runs `"build"`.
-- Do not commit `out/` or `node_modules/`.
+- **Root scripts** fan out across workspaces (`@livy/core`, `@livy/extension`, `@livy/cli`).
+- **Extension build tool:** esbuild (`packages/extension/esbuild.js`). Entry: `packages/extension/src/extension.ts` → `packages/extension/out/extension.js`.
+- **Core/CLI build tool:** TypeScript compiler (`tsc`) emitting to `dist/`.
+- Root scripts:
+  - `"build"` / `"build:dev"` / `"typecheck"` / `"test"` / `"lint"`
+  - `"package"` packages only the extension workspace.
+- Do not commit generated outputs (`packages/*/out`, `packages/*/dist`) or `node_modules/`.
 
 ---
 
@@ -182,9 +184,9 @@ docs/
 
 ## Testing
 
-- Unit tests go in `src/__tests__/` and use **Jest** with `ts-jest`.
+- Unit tests go in each workspace's `src/__tests__/` and use **Jest** with `ts-jest`.
 - Test file naming: `<module>.test.ts`.
-- Mock `vscode` module using the `@vscode/test-electron` / manual mock at `src/__mocks__/vscode.ts`.
+- Mock `vscode` only in extension tests (`packages/extension/src/__mocks__/vscode.ts`).
 - Integration tests (real Livy server) are optional and go in `test/integration/`.
 - Run tests: `npm test`.
 

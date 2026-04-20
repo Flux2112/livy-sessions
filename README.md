@@ -4,6 +4,12 @@ A VSCode extension for running Spark code interactively against an [Apache Livy]
 
 Select code, press `Shift+Enter`, and see the output in the **Livy** Output Channel. No terminals, no notebooks, no context switching.
 
+This repository is a monorepo with:
+
+- `@livy/core` — shared Livy/HDFS/auth/orchestrator library
+- `@livy/extension` — VSCode extension package
+- `@livy/cli` — agent-first CLI package
+
 ---
 
 ## Requirements
@@ -21,6 +27,19 @@ Select code, press `Shift+Enter`, and see the output in the **Livy** Output Chan
 4. Click the **+** button (or run `Livy: Create Livy Session` from the Command Palette) to create a session.
 5. Open a `.py`, `.scala`, or `.sql` file, select some code, and press `Shift+Enter`.
 6. Results appear in the **Livy** Output Channel.
+
+---
+
+## CLI
+
+The repository also includes an automation-friendly CLI in `packages/cli`.
+
+```bash
+npm run build -w @livy/cli
+node packages/cli/bin/run.js session list
+```
+
+See [`packages/cli/README.md`](packages/cli/README.md) for command coverage, config resolution, progress events, and exit codes.
 
 ---
 

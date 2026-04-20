@@ -1,7 +1,6 @@
 import type { LivyClient } from './client'
 import type {
   BatchState,
-  CreateBatchRequest,
   CreateSessionRequest,
   CreateStatementRequest,
   LivyBatch,

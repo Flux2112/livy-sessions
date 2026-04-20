@@ -42,7 +42,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git pull --rebase origin main
-          npm version minor --no-git-tag-version -w packages/extension
+          npm version minor --no-git-tag-version -w @livy/extension
           git commit -am "chore: bump minor version [skip ci]"
           git push origin HEAD:main
 
@@ -53,10 +53,10 @@ jobs:
           git push origin "v${VERSION}"
 
       - name: Build
-        run: npm run build -w packages/extension
+        run: npm run build -w @livy/extension
 
       - name: Package
-        run: npm run package -w packages/extension
+        run: npm run package -w @livy/extension
 
       - name: Publish
         working-directory: packages/extension

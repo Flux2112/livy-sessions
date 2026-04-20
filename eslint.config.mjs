@@ -7,6 +7,8 @@ export default tseslint.config(
       "**/out/",
       "**/dist/",
       "**/node_modules/",
+      "**/scripts/*.js",
+      "**/packages/cli/bin/*.js",
       "**/esbuild.js",
       "**/jest.config.js",
       "**/__mocks__/",

@@ -4,20 +4,18 @@ import {HdfsClient, LivyClient, LivyApiError} from '@livy/core'
 import {CancelledError, ConfigError, TimeoutError, type ResolveConfigFlags, type ResolvedConfig, redactConfig, resolveConfig} from './lib/config'
 
 export const baseFlags = {
-  serverUrl: Flags.string({description: 'Livy server base URL'}),
-  authMethod: Flags.string({description: 'Authentication method', options: ['none', 'basic', 'bearer', 'kerberos']}),
+  'server-url': Flags.string({description: 'Livy server base URL'}),
+  'auth-method': Flags.string({description: 'Authentication method', options: ['none', 'basic', 'bearer', 'kerberos']}),
   username: Flags.string({description: 'Username for basic auth and HDFS substitution'}),
   password: Flags.string({description: 'Password for basic auth'}),
-  bearerToken: Flags.string({description: 'Bearer token for auth'}),
-  kerberosServicePrincipal: Flags.string({description: 'Kerberos service principal'}),
-  kerberosDelegateCredentials: Flags.boolean({description: 'Enable Kerberos credential delegation'}),
+  'bearer-token': Flags.string({description: 'Bearer token for auth'}),
+  'kerberos-service-principal': Flags.string({description: 'Kerberos service principal'}),
+  'kerberos-delegate-credentials': Flags.boolean({description: 'Enable Kerberos credential delegation'}),
   config: Flags.string({description: 'Path to a JSON config file'}),
-  hdfsBaseUrl: Flags.string({description: 'HDFS base URL'}),
-  uploadPath: Flags.string({description: 'HDFS upload path'}),
+  'hdfs-base-url': Flags.string({description: 'HDFS base URL'}),
+  'upload-path': Flags.string({description: 'HDFS upload path'}),
   verbose: Flags.boolean({description: 'Emit NDJSON progress events to stderr'}),
 } as const
-
-type BaseFlagInput = ResolveConfigFlags & {readonly verbose?: boolean}
 
 export interface ProgressEvent {
   readonly v: 1
@@ -82,11 +80,24 @@ export abstract class LivyBaseCommand extends Command {
     process.on('SIGINT', this.onSigint)
 
     const {flags} = await this.parse(this.ctor)
-    const typedFlags = flags as BaseFlagInput
-    this.verbose = typedFlags.verbose ?? false
+    const f = flags as Record<string, unknown>
+    this.verbose = f.verbose === true
+
+    const resolveFlags: ResolveConfigFlags = {
+      serverUrl: f['server-url'] as string | undefined,
+      authMethod: f['auth-method'] as string | undefined,
+      username: f.username as string | undefined,
+      password: f.password as string | undefined,
+      bearerToken: f['bearer-token'] as string | undefined,
+      kerberosServicePrincipal: f['kerberos-service-principal'] as string | undefined,
+      kerberosDelegateCredentials: f['kerberos-delegate-credentials'] as boolean | undefined,
+      config: f.config as string | undefined,
+      hdfsBaseUrl: f['hdfs-base-url'] as string | undefined,
+      uploadPath: f['upload-path'] as string | undefined,
+    }
 
     try {
-      this.resolvedConfig = resolveConfig(typedFlags, process.env, process.cwd())
+      this.resolvedConfig = resolveConfig(resolveFlags, process.env, process.cwd())
     } catch (error) {
       this.failApi(error)
     }

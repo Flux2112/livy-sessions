@@ -128,8 +128,8 @@ export function findConfigFile(
   }
 
   const candidates: Array<{path: string; source: ConfigSource}> = [
-    {path: path.join(os.homedir(), '.livy', 'config.json'), source: 'home'},
     {path: path.join(cwd, '.livyrc.json'), source: 'workspace'},
+    {path: path.join(os.homedir(), '.livy', 'config.json'), source: 'home'},
   ]
 
   for (const candidate of candidates) {

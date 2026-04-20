@@ -577,28 +577,6 @@ export class SessionManager implements vscode.Disposable {
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
-function delay(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise<void>((resolve) => {
-    // Already aborted – resolve immediately so callers can check cancellation
-    if (signal?.aborted) {
-      resolve()
-      return
-    }
-
-    const onAbort = () => {
-      clearTimeout(timer)
-      resolve() // Resolve, not reject – callers check isCancellationRequested
-    }
-
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort)
-      resolve()
-    }, ms)
-
-    signal?.addEventListener('abort', onAbort, { once: true })
-  })
-}
-
 function formatTimestamp(date: Date): string {
   const pad = (n: number, w = 2): string => String(n).padStart(w, '0')
   return (
