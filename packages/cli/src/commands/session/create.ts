@@ -1,8 +1,8 @@
-import {createSessionAndWait} from '@livy/core'
+import {createSessionAndWait, resolveLocalDeps} from '@livy/core'
 import type {CreateSessionRequest, LivySession, SessionKind, SessionState} from '@livy/core'
 
 import {LivyBaseCommand} from '../../base-command'
-import {CancelledError, TimeoutError} from '../../lib/config'
+import {CancelledError, ConfigError, TimeoutError} from '../../lib/config'
 import {mergeStringArrays, nonEmpty, parseConfEntries, sessionCreateFlags, toMilliseconds} from '../../lib/flags'
 import {formatKeyValueCard, writeResult} from '../../lib/output'
 import {emitSessionProgress} from '../../lib/progress'
@@ -17,6 +17,30 @@ export default class SessionCreate extends LivyBaseCommand {
     const {flags} = await this.parse(SessionCreate)
 
     try {
+      // Resolve localDeps: upload local files to HDFS before session creation
+      let localDepUris: {readonly jars: readonly string[]; readonly pyFiles: readonly string[]; readonly files: readonly string[]; readonly archives: readonly string[]} = {jars: [], pyFiles: [], files: [], archives: []}
+      const localDeps = this.resolvedConfig.localDeps
+      const hasLocalDeps =
+        (localDeps.jars?.length ?? 0) > 0 ||
+        (localDeps.pyFiles?.length ?? 0) > 0 ||
+        (localDeps.files?.length ?? 0) > 0 ||
+        (localDeps.archives?.length ?? 0) > 0
+
+      if (hasLocalDeps) {
+        if (!this.hdfsClient) {
+          throw new ConfigError('localDeps is configured but hdfs.baseUrl is not set — HDFS is required for local dependency uploads')
+        }
+
+        localDepUris = await resolveLocalDeps({
+          localDeps,
+          configDir: this.resolvedConfig.configDir!,
+          hdfsClient: this.hdfsClient,
+          username: this.resolvedConfig.username,
+          signal: this.abortSignal,
+          log: this.verbose ? (msg) => this.emitProgress({event: 'local-deps', message: msg}) : undefined,
+        })
+      }
+
       const mergedConf = {
         ...this.resolvedConfig.conf,
         ...parseConfEntries(flags.conf),
@@ -27,10 +51,10 @@ export default class SessionCreate extends LivyBaseCommand {
       const ttl = nonEmpty(flags.ttl ?? this.resolvedConfig.sessionTtl)
       const executorCores = flags['executor-cores'] ?? this.resolvedConfig.executorCores ?? undefined
       const numExecutors = flags['num-executors'] ?? this.resolvedConfig.numExecutors ?? undefined
-      const jars = mergeStringArrays(this.resolvedConfig.jars, flags.jar)
-      const pyFiles = mergeStringArrays(this.resolvedConfig.pyFiles, flags['py-file'])
-      const files = mergeStringArrays(this.resolvedConfig.files, flags.file)
-      const archives = mergeStringArrays(this.resolvedConfig.archives, flags.archive)
+      const jars = mergeStringArrays(localDepUris.jars, this.resolvedConfig.jars, flags.jar)
+      const pyFiles = mergeStringArrays(localDepUris.pyFiles, this.resolvedConfig.pyFiles, flags['py-file'])
+      const files = mergeStringArrays(localDepUris.files, this.resolvedConfig.files, flags.file)
+      const archives = mergeStringArrays(localDepUris.archives, this.resolvedConfig.archives, flags.archive)
 
       const payload: CreateSessionRequest = {
         kind: (flags.kind ?? this.resolvedConfig.defaultKind) as SessionKind,

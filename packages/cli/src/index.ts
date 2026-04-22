@@ -8,4 +8,4 @@ export {
   redactConfig,
   resolveConfig,
 } from './lib/config'
-export type {CliConfigFile, ConfigSource, ResolvedConfig, ResolveConfigFlags} from './lib/config'
+export type {ConfigFile, ConfigFile as CliConfigFile, ConfigSource, ResolvedConfig, ResolveConfigFlags, LocalDepsConfig} from './lib/config'

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode'
-import { LivyClient } from '@livy/core'
+import { LivyClient, resolveLocalDeps } from '@livy/core'
 import {
   createSessionAndWait,
   executeAndWait,
@@ -7,6 +7,8 @@ import {
 } from '@livy/core'
 import type {
   CreateSessionRequest,
+  HdfsClient,
+  LocalDepsConfig,
   LivySession,
   LivyStatement,
   LogResponse,
@@ -29,6 +31,8 @@ export interface SessionManagerOptions {
   readonly output: vscode.OutputChannel
   readonly livyOutput: vscode.OutputChannel
   readonly client: LivyClient
+  readonly getLocalDepsConfig?: () => { localDeps: LocalDepsConfig; configDir: string } | null
+  readonly getHdfsClient?: () => HdfsClient | null
 }
 
 export class SessionManager implements vscode.Disposable {
@@ -36,6 +40,8 @@ export class SessionManager implements vscode.Disposable {
   private readonly output: vscode.OutputChannel
   private readonly livyOutput: vscode.OutputChannel
   private client: LivyClient
+  private readonly getLocalDepsConfig: (() => { localDeps: LocalDepsConfig; configDir: string } | null) | undefined
+  private readonly getHdfsClient: (() => HdfsClient | null) | undefined
 
   private _activeSession: LivySession | null = null
   private _logOffset: number = 0
@@ -52,6 +58,8 @@ export class SessionManager implements vscode.Disposable {
     this.output = opts.output
     this.livyOutput = opts.livyOutput
     this.client = opts.client
+    this.getLocalDepsConfig = opts.getLocalDepsConfig
+    this.getHdfsClient = opts.getHdfsClient
   }
 
   // ─── Public Accessors ───────────────────────────────────────────────────────
@@ -95,6 +103,40 @@ export class SessionManager implements vscode.Disposable {
   async createSession(opts?: CreateSessionRequest): Promise<void> {
     const config = vscode.workspace.getConfiguration('livy')
 
+    // Resolve localDeps: upload local files to HDFS before session creation
+    let localDepJars: string[] = []
+    let localDepPyFiles: string[] = []
+    let localDepFiles: string[] = []
+    let localDepArchives: string[] = []
+
+    const depsConfig = this.getLocalDepsConfig?.()
+    const hdfsClient = this.getHdfsClient?.()
+    if (depsConfig && hdfsClient) {
+      try {
+        this.log('Uploading localDeps to HDFS before session creation…')
+        const resolved = await resolveLocalDeps({
+          localDeps: depsConfig.localDeps,
+          configDir: depsConfig.configDir,
+          hdfsClient,
+          username: config.get<string>('username', ''),
+          log: (msg) => this.log(`[localDeps] ${msg}`),
+        })
+        localDepJars = [...resolved.jars]
+        localDepPyFiles = [...resolved.pyFiles]
+        localDepFiles = [...resolved.files]
+        localDepArchives = [...resolved.archives]
+        this.log('localDeps upload complete.')
+      } catch (err) {
+        this.handleError('Failed to upload localDeps', err)
+        return
+      }
+    }
+
+    const configJars = [...localDepJars, ...(config.get<string[]>('jars', []))]
+    const configPyFiles = [...localDepPyFiles, ...(config.get<string[]>('pyFiles', []))]
+    const configFiles = [...localDepFiles, ...(config.get<string[]>('files', []))]
+    const configArchives = [...localDepArchives, ...(config.get<string[]>('archives', []))]
+
     const payload: CreateSessionRequest = {
       kind: (opts?.kind ?? config.get<string>('defaultKind', 'pyspark')) as SessionKind,
       name: opts?.name ?? (config.get<string>('sessionName', '') || undefined),
@@ -103,16 +145,10 @@ export class SessionManager implements vscode.Disposable {
         opts?.executorMemory ?? (config.get<string>('executorMemory', '') || undefined),
       executorCores: opts?.executorCores ?? (config.get<number | null>('executorCores') ?? undefined),
       numExecutors: opts?.numExecutors ?? (config.get<number | null>('numExecutors') ?? undefined),
-      jars: opts?.jars ?? (config.get<string[]>('jars', []).length ? config.get<string[]>('jars') : undefined),
-      pyFiles:
-        opts?.pyFiles ??
-        (config.get<string[]>('pyFiles', []).length ? config.get<string[]>('pyFiles') : undefined),
-      files:
-        opts?.files ??
-        (config.get<string[]>('files', []).length ? config.get<string[]>('files') : undefined),
-      archives:
-        opts?.archives ??
-        (config.get<string[]>('archives', []).length ? config.get<string[]>('archives') : undefined),
+      jars: opts?.jars ?? (configJars.length ? configJars : undefined),
+      pyFiles: opts?.pyFiles ?? (configPyFiles.length ? configPyFiles : undefined),
+      files: opts?.files ?? (configFiles.length ? configFiles : undefined),
+      archives: opts?.archives ?? (configArchives.length ? configArchives : undefined),
       conf:
         opts?.conf ??
         (Object.keys(config.get<Record<string, string>>('conf', {})).length

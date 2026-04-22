@@ -42,14 +42,27 @@ jest.mock('@livy/core', () => {
     }
   }
 
+  class ConfigFileError extends Error {
+    readonly code = 'CONFIG_ERROR'
+    constructor(message: string) {
+      super(message)
+      this.name = 'ConfigFileError'
+    }
+  }
+
   return {
     LivyClient: jest.fn().mockImplementation(() => livyClientMock),
     HdfsClient: jest.fn().mockImplementation(() => hdfsClientMock),
     LivyApiError,
+    ConfigFileError,
     createSessionAndWait: (...args: unknown[]) => createSessionAndWaitMock(...args),
     executeAndWait: (...args: unknown[]) => executeAndWaitMock(...args),
     waitForBatch: (...args: unknown[]) => waitForBatchMock(...args),
     zipDirectory: (...args: unknown[]) => zipDirectoryMock(...args),
+    resolveLocalDeps: jest.fn().mockResolvedValue({jars: [], pyFiles: [], files: [], archives: []}),
+    findConfigFile: jest.fn().mockReturnValue({path: null, source: 'none'}),
+    readConfigFile: jest.fn().mockReturnValue({}),
+    expandPath: jest.fn().mockImplementation((input: string) => input),
   }
 })
 

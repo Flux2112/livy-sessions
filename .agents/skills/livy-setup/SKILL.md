@@ -139,8 +139,50 @@ Create `.livyrc.json` in your project directory:
   "hdfs": {
     "baseUrl": "https://namenode:9870",
     "uploadPath": "/user/{username}/livy-deps"
+  },
+  "localDeps": {
+    "jars": ["./lib/shared.jar"],
+    "pyFiles": ["./src/utils.py", "./src/helpers/"],
+    "files": ["./config/log4j.properties"],
+    "archives": []
   }
 }
+```
+
+## Local Dependencies (`localDeps`)
+
+The `localDeps` section declares local project files that should be **automatically uploaded to HDFS** before session creation or batch submission. This eliminates manual `hdfs upload` calls.
+
+```json
+{
+  "localDeps": {
+    "jars": ["./lib/shared.jar", "./lib/jdbc-driver.jar"],
+    "pyFiles": ["./src/utils.py", "./src/helpers/"],
+    "files": ["./config/log4j.properties"],
+    "archives": []
+  }
+}
+```
+
+**Behavior:**
+- Paths are relative to the config file's directory (project root for `.livyrc.json`)
+- Directories are automatically zipped before upload
+- Files are uploaded to `hdfs.uploadPath` using their basename
+- Resulting HDFS URIs are prepended to `jars`/`pyFiles`/`files`/`archives` arrays
+- Missing files are skipped with a warning; the command continues
+- **Requires** `hdfs.baseUrl` — hard error (exit 2) if localDeps is configured without HDFS
+
+**Scope:**
+- Applies to `session create` and `batch submit` only
+- Does NOT apply to `exec run` (Livy API doesn't allow adding deps to running sessions)
+- Always re-uploads (no caching) — each command is stateless
+
+```bash
+# With localDeps configured, auto-uploads happen transparently:
+livy session create --kind pyspark
+
+# Explicit --jar flags are additive on top of localDeps:
+livy session create --jar "hdfs:///extra/lib.jar"
 ```
 
 ## Config File Locations
@@ -250,3 +292,5 @@ livy session kill-all
 | Self-signed certificate | `UNABLE_TO_VERIFY_LEAF_SIGNATURE` | Set `NODE_TLS_REJECT_UNAUTHORIZED=0` (dev only!) |
 | Config file not found | Settings not applied | Check file location matches precedence chain; use `config show` |
 | HDFS not configured | `HDFS client is not configured` (exit 2) | Add `hdfs.baseUrl` to config or set `LIVY_HDFS_BASE_URL` |
+| localDeps without HDFS | `localDeps requires hdfs.baseUrl` (exit 2) | Add `hdfs.baseUrl` and `hdfs.uploadPath` to config |
+| localDeps file missing | Warning on stderr, file skipped | Check path is relative to config file directory |

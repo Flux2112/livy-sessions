@@ -111,12 +111,13 @@ export function parseConfEntries(values: readonly string[] | undefined): Readonl
 }
 
 export function mergeStringArrays(
-  baseValues: readonly string[],
-  extraValues: readonly string[] | undefined
+  ...arrays: ReadonlyArray<readonly string[] | undefined>
 ): readonly string[] {
-  const merged = new Set<string>(baseValues)
-  for (const value of extraValues ?? []) {
-    merged.add(value)
+  const merged = new Set<string>()
+  for (const arr of arrays) {
+    for (const value of arr ?? []) {
+      merged.add(value)
+    }
   }
 
   return [...merged]

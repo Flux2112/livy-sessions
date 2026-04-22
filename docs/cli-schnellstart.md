@@ -211,3 +211,66 @@ livy batch kill 7
 - **`--verbose` für Echtzeit-Fortschritt:** NDJSON-Events auf stderr zeigen Session-State-Übergänge und Statement-Fortschritt.
 - **`--json` für oclif-Serialisierung:** Zusätzlich zum Standard-JSON-Output unterstützt die CLI das oclif-native `--json`-Flag, das die Rückgabewerte der Befehle serialisiert.
 - **HDFS-Upload gibt eine reine URI zurück:** Der Output von `hdfs upload` ist ein nackter String – ideal für Shell-Substitution (`$(livy hdfs upload ...)`).
+
+---
+
+## Lokale Abhängigkeiten (`localDeps`)
+
+Statt manuelle HDFS-Uploads vor jeder Session durchzuführen, können lokale Dateien in `.livyrc.json` deklariert werden. Sie werden automatisch nach HDFS hochgeladen, bevor eine Session oder ein Batch erstellt wird.
+
+### Konfiguration
+
+Füge einen `localDeps`-Abschnitt zur `.livyrc.json` hinzu:
+
+```json
+{
+  "livy": {
+    "serverUrl": "https://livy:8998",
+    "authMethod": "kerberos",
+    "defaultKind": "pyspark"
+  },
+  "hdfs": {
+    "baseUrl": "https://namenode:9870",
+    "uploadPath": "/user/mein-user/livy-deps"
+  },
+  "localDeps": {
+    "jars": ["./lib/shared.jar", "./lib/jdbc-driver.jar"],
+    "pyFiles": ["./src/utils.py", "./src/helpers/"],
+    "files": ["./config/log4j.properties"],
+    "archives": []
+  }
+}
+```
+
+### Verhalten
+
+| Eigenschaft | Verhalten |
+|-------------|-----------|
+| **Pfade** | Relativ zum Verzeichnis der Config-Datei (Projektroot bei `.livyrc.json`) |
+| **Verzeichnisse** | Werden automatisch als ZIP verpackt vor dem Upload |
+| **Merge** | localDeps-URIs werden **vor** expliziten `jars`/`pyFiles`/etc. eingefügt |
+| **Fehlende Dateien** | Werden mit Warnung übersprungen – kein Abbruch |
+| **Ohne HDFS** | Harter Fehler (Exit-Code 2) wenn `localDeps` ohne `hdfs.baseUrl` konfiguriert ist |
+| **Geltungsbereich** | Nur `session create` und `batch submit` – **nicht** `exec run` |
+| **Caching** | Kein Caching – bei jedem Befehl wird neu hochgeladen (stateless) |
+
+### Beispiel
+
+```bash
+# localDeps werden automatisch hochgeladen:
+livy session create --kind pyspark
+
+# Zusätzliche --jar-Flags sind additiv:
+livy session create --jar "hdfs:///extra/lib.jar"
+```
+
+### Gemeinsame Konfiguration
+
+Die `.livyrc.json` wird sowohl von der **CLI** als auch von der **VS Code Extension** gelesen:
+
+| Werkzeug | Priorität |
+|----------|-----------|
+| **CLI** | Flags > Env-Vars > `.livyrc.json` > `~/.livy/config.json` > Defaults |
+| **Extension** | VS Code Settings (vom User gesetzte) > `.livyrc.json` > package.json Defaults |
+
+So muss die Konfiguration nur **einmal** gepflegt werden.

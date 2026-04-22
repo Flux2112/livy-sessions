@@ -1,9 +1,19 @@
-import * as fs from 'node:fs'
-import * as os from 'node:os'
 import * as path from 'node:path'
-import type {AuthMethod, LivyConfig, SessionKind} from '@livy/core'
+import type {AuthMethod, LivyConfig} from '@livy/core'
+import {findConfigFile, readConfigFile} from '@livy/core'
+import type {ConfigFile, ConfigSource, LocalDepsConfig} from '@livy/core'
 
-export type ConfigSource = 'flag' | 'env' | 'home' | 'workspace' | 'none'
+export type {ConfigFile, ConfigSource, LocalDepsConfig}
+export {findConfigFile, readConfigFile}
+
+export class ConfigError extends Error {
+  readonly code = 'CONFIG_ERROR'
+
+  constructor(message: string) {
+    super(message)
+    this.name = 'ConfigError'
+  }
+}
 
 export interface ResolveConfigFlags {
   readonly serverUrl?: string
@@ -18,54 +28,13 @@ export interface ResolveConfigFlags {
   readonly uploadPath?: string
 }
 
-interface LivyConfigFile {
-  readonly serverUrl?: string
-  readonly authMethod?: AuthMethod
-  readonly username?: string
-  readonly password?: string
-  readonly bearerToken?: string
-  readonly kerberosServicePrincipal?: string
-  readonly kerberosDelegateCredentials?: boolean
-  readonly defaultKind?: SessionKind
-  readonly sessionName?: string
-  readonly pollIntervalMs?: number
-  readonly sessionPollIntervalMs?: number
-  readonly driverMemory?: string
-  readonly executorMemory?: string
-  readonly executorCores?: number | null
-  readonly numExecutors?: number | null
-  readonly sessionTtl?: string
-  readonly jars?: readonly string[]
-  readonly pyFiles?: readonly string[]
-  readonly files?: readonly string[]
-  readonly archives?: readonly string[]
-  readonly conf?: Readonly<Record<string, string>>
-}
-
-interface HdfsConfigFile {
-  readonly baseUrl?: string
-  readonly uploadPath?: string
-}
-
-export interface CliConfigFile {
-  readonly livy?: LivyConfigFile
-  readonly hdfs?: HdfsConfigFile
-}
-
 export interface ResolvedConfig extends LivyConfig {
   readonly hdfsBaseUrl: string
   readonly uploadPath: string
   readonly configPath: string | null
+  readonly configDir: string | null
   readonly configSource: ConfigSource
-}
-
-export class ConfigError extends Error {
-  readonly code = 'CONFIG_ERROR'
-
-  constructor(message: string) {
-    super(message)
-    this.name = 'ConfigError'
-  }
+  readonly localDeps: LocalDepsConfig
 }
 
 export class TimeoutError extends Error {
@@ -112,34 +81,7 @@ const DEFAULT_LIVY_CONFIG: LivyConfig = {
 
 const DEFAULT_HDFS_UPLOAD_PATH = '/user/{username}/livy-deps'
 
-export function findConfigFile(
-  configPathFlag: string | undefined,
-  env: NodeJS.ProcessEnv = process.env,
-  cwd = process.cwd()
-): {path: string | null; source: ConfigSource} {
-  const explicitPath = configPathFlag ?? env.LIVY_CONFIG
-  if (explicitPath) {
-    const resolved = expandPath(explicitPath, cwd)
-    if (!fs.existsSync(resolved)) {
-      throw new ConfigError(`Config file not found: ${resolved}`)
-    }
-
-    return {path: resolved, source: configPathFlag ? 'flag' : 'env'}
-  }
-
-  const candidates: Array<{path: string; source: ConfigSource}> = [
-    {path: path.join(cwd, '.livyrc.json'), source: 'workspace'},
-    {path: path.join(os.homedir(), '.livy', 'config.json'), source: 'home'},
-  ]
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate.path)) {
-      return candidate
-    }
-  }
-
-  return {path: null, source: 'none'}
-}
+const EMPTY_LOCAL_DEPS: LocalDepsConfig = {}
 
 export function resolveConfig(
   flags: ResolveConfigFlags = {},
@@ -150,6 +92,19 @@ export function resolveConfig(
   const fileConfig = configPath ? readConfigFile(configPath) : {}
   const livyConfig = fileConfig.livy ?? {}
   const hdfsConfig = fileConfig.hdfs ?? {}
+  const localDeps = fileConfig.localDeps ?? EMPTY_LOCAL_DEPS
+  const configDir = configPath ? path.dirname(configPath) : null
+
+  const hdfsBaseUrl = pick(flags.hdfsBaseUrl, env.LIVY_HDFS_BASE_URL, hdfsConfig.baseUrl, '')
+  const hasLocalDeps =
+    (localDeps.jars?.length ?? 0) > 0 ||
+    (localDeps.pyFiles?.length ?? 0) > 0 ||
+    (localDeps.files?.length ?? 0) > 0 ||
+    (localDeps.archives?.length ?? 0) > 0
+
+  if (hasLocalDeps && !hdfsBaseUrl) {
+    throw new ConfigError('localDeps is configured but hdfs.baseUrl is not set — HDFS is required for local dependency uploads')
+  }
 
   const config: ResolvedConfig = {
     ...DEFAULT_LIVY_CONFIG,
@@ -200,10 +155,12 @@ export function resolveConfig(
     files: [...(livyConfig.files ?? DEFAULT_LIVY_CONFIG.files)],
     archives: [...(livyConfig.archives ?? DEFAULT_LIVY_CONFIG.archives)],
     conf: {...DEFAULT_LIVY_CONFIG.conf, ...(livyConfig.conf ?? {})},
-    hdfsBaseUrl: pick(flags.hdfsBaseUrl, env.LIVY_HDFS_BASE_URL, hdfsConfig.baseUrl, ''),
+    hdfsBaseUrl,
     uploadPath: pick(flags.uploadPath, env.LIVY_HDFS_UPLOAD_PATH, hdfsConfig.uploadPath, DEFAULT_HDFS_UPLOAD_PATH),
     configPath,
+    configDir,
     configSource,
+    localDeps,
   }
 
   validateConfig(config)
@@ -230,33 +187,6 @@ function validateConfig(config: ResolvedConfig): void {
   if (config.authMethod === 'kerberos' && !config.kerberosServicePrincipal) {
     throw new ConfigError('Kerberos authentication requires kerberosServicePrincipal to be set')
   }
-}
-
-function readConfigFile(configPath: string): CliConfigFile {
-  try {
-    const raw = fs.readFileSync(configPath, 'utf8')
-    const parsed = JSON.parse(raw) as unknown
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new ConfigError(`Config file must contain a JSON object: ${configPath}`)
-    }
-
-    return parsed as CliConfigFile
-  } catch (error) {
-    if (error instanceof ConfigError) {
-      throw error
-    }
-
-    const message = error instanceof Error ? error.message : String(error)
-    throw new ConfigError(`Failed to read config file ${configPath}: ${message}`)
-  }
-}
-
-function expandPath(input: string, cwd: string): string {
-  if (input.startsWith('~/')) {
-    return path.join(os.homedir(), input.slice(2))
-  }
-
-  return path.isAbsolute(input) ? input : path.resolve(cwd, input)
 }
 
 function pick<T>(...values: Array<T | undefined>): T {
