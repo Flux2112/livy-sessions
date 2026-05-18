@@ -6,6 +6,8 @@ const createSessionAndWaitMock = jest.fn()
 const executeAndWaitMock = jest.fn()
 const waitForBatchMock = jest.fn()
 const zipDirectoryMock = jest.fn()
+const yarnLogClientFetchMock = jest.fn()
+const mockYarnLogClientConstructor = jest.fn()
 
 const livyClientMock = {
   listSessions: jest.fn(),
@@ -50,11 +52,18 @@ jest.mock('@livy/core', () => {
     }
   }
 
+  const YarnLogClient = jest.fn().mockImplementation((...args: unknown[]) => {
+    mockYarnLogClientConstructor(...args)
+    return {fetchApplicationMasterLog: yarnLogClientFetchMock}
+  })
+
   return {
     LivyClient: jest.fn().mockImplementation(() => livyClientMock),
     HdfsClient: jest.fn().mockImplementation(() => hdfsClientMock),
     LivyApiError,
     ConfigFileError,
+    YarnLogClient,
+    deriveResourceManagerUrl: jest.fn().mockReturnValue('https://edge:8443/gateway/cdp-kerberos-api/resourcemanager/v1'),
     createSessionAndWait: (...args: unknown[]) => createSessionAndWaitMock(...args),
     executeAndWait: (...args: unknown[]) => executeAndWaitMock(...args),
     waitForBatch: (...args: unknown[]) => waitForBatchMock(...args),
@@ -69,6 +78,7 @@ jest.mock('@livy/core', () => {
 import BatchSubmit from '../commands/batch/submit'
 import ExecRun from '../commands/exec/run'
 import HdfsUploadDir from '../commands/hdfs/upload-dir'
+import LogsBatch from '../commands/logs/batch'
 import SessionCreate from '../commands/session/create'
 import SessionKillAll from '../commands/session/kill-all'
 
@@ -139,6 +149,7 @@ describe('CLI commands', () => {
 
     hdfsClientMock.upload.mockResolvedValue('hdfs:///user/alice/livy-deps/test.zip')
     hdfsClientMock.delete.mockResolvedValue(undefined)
+    yarnLogClientFetchMock.mockResolvedValue('driver stderr')
 
     createSessionAndWaitMock.mockResolvedValue(sampleSession(5, 'idle'))
     executeAndWaitMock.mockResolvedValue({
@@ -244,6 +255,102 @@ describe('CLI commands', () => {
 
     expect(zipDirectoryMock).toHaveBeenCalledWith(dir)
     expect(hdfsClientMock.upload).toHaveBeenCalledWith(zipPath, 'deps.zip', '', expect.anything())
+  })
+
+  test('logs batch can fetch YARN application master stderr', async () => {
+    livyClientMock.getBatch.mockResolvedValue({
+      id: 42,
+      appId: 'application_1778590029506_1484',
+      appInfo: {},
+      owner: 'hanke',
+      ttl: null,
+      log: [],
+      state: 'dead',
+    })
+
+    await LogsBatch.run([
+      '42',
+      '--yarn',
+      '--stream',
+      'stderr',
+      '--yarn-gateway-url',
+      'https://edge:8443/gateway/cdp-proxy/yarnuiv2',
+      '--container-id',
+      'container_e65_1778590029506_1484_01_000001',
+      '--node-host',
+      'anucdp-worker-03.w.oenb.co.at',
+      '--app-user',
+      'hanke',
+      '--cookie-header',
+      'KNOXSSO=token',
+      '--history-host',
+      'anucdp-mgmt-03.w.oenb.co.at',
+      '--history-port',
+      '19890',
+    ])
+
+    expect(livyClientMock.getBatch).toHaveBeenCalledWith(42, expect.anything())
+    expect(mockYarnLogClientConstructor).toHaveBeenCalledWith(expect.objectContaining({
+      historyHost: 'anucdp-mgmt-03.w.oenb.co.at',
+      historyPort: 19890,
+      resourceManagerUrl: 'https://edge:8443/gateway/cdp-kerberos-api/resourcemanager/v1',
+    }))
+    expect(yarnLogClientFetchMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'application_1778590029506_1484',
+        appUser: 'hanke',
+        containerId: 'container_e65_1778590029506_1484_01_000001',
+        nodeHost: 'anucdp-worker-03.w.oenb.co.at',
+        stream: 'stderr',
+      }),
+      expect.anything()
+    )
+    expect(stdoutSpy).toHaveBeenCalledWith('driver stderr\n')
+  })
+
+  test('logs batch can fetch YARN logs directly by app id', async () => {
+    await LogsBatch.run([
+      '0',
+      '--yarn',
+      '--app-id',
+      'application_1778590029506_1486',
+      '--stream',
+      'stdout',
+    ])
+
+    expect(livyClientMock.getBatch).not.toHaveBeenCalled()
+    expect(yarnLogClientFetchMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'application_1778590029506_1486',
+        stream: 'stdout',
+      }),
+      expect.anything()
+    )
+  })
+
+  test('logs batch passes cookie header to YARN log client', async () => {
+    livyClientMock.getBatch.mockResolvedValue({
+      id: 43,
+      appId: 'application_1_0001',
+      appInfo: {},
+      owner: 'hanke',
+      ttl: null,
+      log: [],
+      state: 'dead',
+    })
+
+    await LogsBatch.run([
+      '43',
+      '--yarn',
+      '--cookie-header',
+      'KNOXSSO=token; other=value',
+      '--container-id',
+      'container_e65_1_0001_01_000001',
+      '--node-host',
+      'anucdp-worker-03.w.oenb.co.at',
+    ])
+
+    expect(yarnLogClientFetchMock).toHaveBeenCalledTimes(1)
   })
 })
 

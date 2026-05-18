@@ -1,0 +1,25 @@
+{
+  "livy": {
+    "serverUrl": "https://<YOUR_LIVY_HOST>:8443/gateway/cdp-kerberos-api/livy_for_spark3",
+    "authMethod": "kerberos",
+    "kerberosServicePrincipal": "HTTP@<YOUR_LIVY_HOST>",
+    "username": "<YOUR_AD_USER>",
+    "driverMemory": "10g",
+    "defaultKind": "pyspark",
+    "conf": {
+      "spark.yarn.queue": "<YOUR_YARN_QUEUE>"
+    }
+  },
+  "hdfs": {
+    "baseUrl": "https://<YOUR_LIVY_HOST>:8443/gateway/cdp-kerberos-api/webhdfs/v1",
+    "uploadPath": "/user/{username}/livy-sessions"
+  },
+  "localDeps": {
+    "pyFiles": [
+      "./path/to/your/modules.zip"
+    ],
+    "files": [
+      "./path/to/your/scripts/folder"
+    ]
+  }
+}
