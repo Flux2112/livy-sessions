@@ -8,7 +8,7 @@ This repository is a monorepo with:
 
 - `@livy/core` — shared Livy/HDFS/auth/orchestrator library
 - `@livy/extension` — VSCode extension package
-- `@livy/cli` — agent-first CLI package
+- `@livy/cli` — agent-first CLI package with companion skills
 
 ---
 
@@ -32,7 +32,14 @@ This repository is a monorepo with:
 
 ## CLI
 
-The repository also includes an automation-friendly CLI in `packages/cli`.
+The repository also includes an agent-first CLI in `packages/cli`.
+
+It is designed for automation and AI agents:
+
+- JSON on stdout by default
+- NDJSON progress events on stderr with `--verbose`
+- deterministic exit codes and explicit IDs
+- companion skills in `.agents/skills/` for sessions, batches, HDFS, debugging, and setup
 
 ```bash
 npm run build -w @livy/cli
