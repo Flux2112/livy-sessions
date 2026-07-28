@@ -12,6 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Lets the runner mint a GitHub OIDC token, which Entra ID exchanges for
+      # an access token. This is what replaces the long-lived Marketplace PAT.
+      id-token: write
 
     steps:
       - name: Checkout
@@ -37,6 +40,26 @@ jobs:
       - name: Test
         run: npm test
 
+      # Signs the Azure CLI in via workload identity federation: no secret is
+      # stored, the runner proves its identity with a short-lived OIDC token.
+      - name: Azure login
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          allow-no-subscriptions: true
+
+      # Byte-for-byte the call vsce's AzureCliCredential makes, so a pass here
+      # means the publish step will authenticate. Runs before the version bump
+      # so a broken federation cannot leave a bumped version and a pushed tag
+      # with no release behind them. Prints the expiry only, never the token.
+      - name: Verify Marketplace credential
+        run: |
+          az account get-access-token \
+            --resource 499b84ac-1321-427f-aa17-267ca6975798 \
+            --query expiresOn -o tsv
+
       - name: Sync, bump, commit & push
         run: |
           git config user.name "github-actions[bot]"
@@ -58,9 +81,11 @@ jobs:
       - name: Package
         run: npm run package -w @livy/extension
 
+      # vsce resolves an Entra ID token through its credential chain, which
+      # picks up the Azure CLI session established above. Requires vsce >= 2.26.1.
       - name: Publish
         working-directory: packages/extension
-        run: npx vsce publish --pat ${{ secrets.AZURE_PAT }}
+        run: npx vsce publish --azure-credential
 
       - name: Upload artifact
         if: always()

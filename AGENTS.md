@@ -183,10 +183,23 @@ docs/
 
 - **`.github/workflows/publish.yml`** runs on every push to `main`:
   1. `typecheck` → `lint` → `test`
-  2. Auto-bumps the **minor** version (`npm version minor --no-git-tag-version`) and pushes back with `[skip ci]`
-  3. Creates a git tag `v{version}`
-  4. Builds, packages, and publishes to the VS Code Marketplace using `secrets.AZURE_PAT`
+  2. Signs in to Azure and verifies a Marketplace token can be obtained
+  3. Auto-bumps the **minor** version (`npm version minor --no-git-tag-version`) and pushes back with `[skip ci]`
+  4. Creates a git tag `v{version}`
+  5. Builds, packages, and publishes to the VS Code Marketplace
 - Never manually bump the version in `package.json` on `main` — the CI does it automatically.
+
+### Publishing authenticates with Entra ID, not a PAT
+
+Changed 2026-07-28. Marketplace PATs retire on 1 December 2026, so `secrets.AZURE_PAT` is no longer used. `azure/login@v3` exchanges the runner's GitHub OIDC token (hence `permissions: id-token: write`) for an Azure CLI session, and `vsce publish --azure-credential` picks it up through its credential chain — `EnvironmentCredential` → `AzureCliCredential` → … — requesting a token for the Azure DevOps resource `499b84ac-1321-427f-aa17-267ca6975798`. Requires vsce >= 2.26.1; the repo pins `^3.7.1`.
+
+Nothing long-lived is stored. `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_SUBSCRIPTION_ID` are identifiers, not secrets.
+
+The identity is a user-assigned managed identity, `cai-connector-publisher` in resource group `vscode-publish-rg`. It is **shared with the `cai-connector` extension** — both publish under the `DefySoftwareSolutions` publisher, so one Marketplace membership covers both and each repo just gets its own federated credential. The name is a leftover from the extension it was created for; it is not specific to that one. Trust is per branch: the credential named `github-livy-sessions-main` matches the subject `repo:Flux2112/livy-sessions:ref:refs/heads/main` **exactly**. Publishing from any other branch fails the token exchange, and Microsoft warns a mismatched subject fails *silently* — if a publish ever stalls on auth with nothing useful logged, check the subject first.
+
+The credential check deliberately sits **before** the version bump. A misconfiguration then costs a red run rather than a bumped version and a pushed tag with no release behind them.
+
+Upstream guidance covers Azure Pipelines only (an `AzureCLI@2` task against an ADO service connection); this is the same mechanism adapted to GitHub Actions, where the federated credential trusts GitHub as the OIDC issuer directly.
 
 ---
 
